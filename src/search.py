@@ -2,28 +2,39 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Dict, Optional
+from typing import Optional
 
 import requests
+from bs4 import BeautifulSoup
 import streamlit as st
 
 
 # =========================================================
-# FMCSA API
+# SETTINGS
 # =========================================================
 
-FMCSA_API_BASE = "https://mobile.fmcsa.dot.gov/qc/services"
+FMCSA_API_BASE = (
+    "https://mobile.fmcsa.dot.gov/qc/services"
+)
 
-DEFAULT_TIMEOUT = 30
+DOTSEARCH_BASE = (
+    "https://www.dotsearch.io/dot"
+)
+
+REQUEST_TIMEOUT = 30
+
+# Small delay between DotSearch requests.
+# Increase this if you are searching very large lists.
+DOTSEARCH_DELAY = 0.5
 
 
 # =========================================================
-# GET FMCSA API KEY
+# FMCSA WEB KEY
 # =========================================================
 
 def get_fmcsa_web_key() -> str:
     """
-    Reads the FMCSA WebKey from Streamlit Secrets.
+    Reads the FMCSA API key from Streamlit Secrets.
 
     Streamlit Cloud:
         Manage app
@@ -32,7 +43,7 @@ def get_fmcsa_web_key() -> str:
 
     Add:
 
-        FMCSA_WEB_KEY = "YOUR_KEY"
+        FMCSA_WEB_KEY = "YOUR_REAL_KEY"
     """
 
     try:
@@ -47,7 +58,7 @@ def get_fmcsa_web_key() -> str:
 
 
 # =========================================================
-# NORMALIZE INPUT
+# CLEAN IDENTIFIER
 # =========================================================
 
 def normalize_identifier(
@@ -62,68 +73,42 @@ def normalize_identifier(
 
 
 # =========================================================
-# IDENTIFIER TYPE
-# =========================================================
-
-def classify_identifier(
-    value: str,
-) -> str:
-
-    compact = normalize_identifier(value)
-
-    if compact.isdigit():
-        return "MC"
-
-    if compact.startswith("USDOT"):
-        return "DOT"
-
-    if compact.startswith("DOT"):
-        return "DOT"
-
-    if compact.startswith("MC"):
-        return "MC"
-
-    if compact.startswith("MX"):
-        return "MX"
-
-    if compact.startswith("FF"):
-        return "FF"
-
-    return "UNKNOWN"
-
-
-# =========================================================
-# REMOVE PREFIX
+# REMOVE MC / DOT PREFIX
 # =========================================================
 
 def remove_prefix(
     value: str,
 ) -> str:
 
-    value = normalize_identifier(value)
+    value = normalize_identifier(
+        value
+    )
 
-    for prefix in (
+    prefixes = (
         "USDOT",
         "DOT",
         "MC",
         "MX",
         "FF",
-    ):
+    )
+
+    for prefix in prefixes:
 
         if value.startswith(prefix):
-            return value[len(prefix):]
+
+            return value[
+                len(prefix):
+            ]
 
     return value
 
 
 # =========================================================
-# FMCSA API REQUEST
+# FMCSA API
 # =========================================================
 
 def fmcsa_get(
     endpoint: str,
-    params: Optional[dict] = None,
-    timeout: int = DEFAULT_TIMEOUT,
 ):
 
     web_key = get_fmcsa_web_key()
@@ -135,21 +120,21 @@ def fmcsa_get(
             "Add FMCSA_WEB_KEY to Streamlit Secrets."
         )
 
-    url = FMCSA_API_BASE + endpoint
-
-    request_params = {}
-
-    if params:
-        request_params.update(params)
-
-    request_params["webKey"] = web_key
+    url = (
+        FMCSA_API_BASE
+        + endpoint
+    )
 
     response = requests.get(
         url,
-        params=request_params,
-        timeout=timeout,
+        params={
+            "webKey": web_key,
+        },
+        timeout=REQUEST_TIMEOUT,
         headers={
-            "User-Agent": "MC-Bulk-Streamlit/1.0",
+            "User-Agent": (
+                "MC-Bulk-Streamlit/1.0"
+            ),
             "Accept": "application/json",
         },
     )
@@ -158,22 +143,16 @@ def fmcsa_get(
 
         raise RuntimeError(
             "FMCSA API authentication failed. "
-            "Check your WebKey."
+            "Check your FMCSA WebKey."
         )
 
     if response.status_code == 404:
+
         return None
 
     response.raise_for_status()
 
-    try:
-        return response.json()
-
-    except ValueError:
-
-        raise RuntimeError(
-            "FMCSA returned an invalid JSON response."
-        )
+    return response.json()
 
 
 # =========================================================
@@ -184,6 +163,17 @@ def find_value(
     data,
     possible_keys,
 ):
+
+    wanted_keys = set()
+
+    for key in possible_keys:
+
+        wanted_keys.add(
+            str(key)
+            .replace("_", "")
+            .replace("-", "")
+            .lower()
+        )
 
     if isinstance(data, dict):
 
@@ -196,19 +186,11 @@ def find_value(
                 .lower()
             )
 
-            for wanted in possible_keys:
+            if normalized_key in wanted_keys:
 
-                normalized_wanted = (
-                    wanted
-                    .replace("_", "")
-                    .replace("-", "")
-                    .lower()
-                )
+                if value is not None:
 
-                if normalized_key == normalized_wanted:
-
-                    if value is not None:
-                        return value
+                    return value
 
             result = find_value(
                 value,
@@ -216,6 +198,7 @@ def find_value(
             )
 
             if result is not None:
+
                 return result
 
     elif isinstance(data, list):
@@ -228,349 +211,39 @@ def find_value(
             )
 
             if result is not None:
+
                 return result
 
     return None
 
 
 # =========================================================
-# FIND ALL VALUES
+# MC → DOT USING FMCSA
 # =========================================================
 
-def find_values(
-    data,
-    possible_keys,
-):
-
-    found = []
-
-    if isinstance(data, dict):
-
-        for key, value in data.items():
-
-            normalized_key = (
-                str(key)
-                .replace("_", "")
-                .replace("-", "")
-                .lower()
-            )
-
-            for wanted in possible_keys:
-
-                normalized_wanted = (
-                    wanted
-                    .replace("_", "")
-                    .replace("-", "")
-                    .lower()
-                )
-
-                if normalized_key == normalized_wanted:
-
-                    if value is not None:
-                        found.append(value)
-
-            found.extend(
-                find_values(
-                    value,
-                    possible_keys,
-                )
-            )
-
-    elif isinstance(data, list):
-
-        for item in data:
-
-            found.extend(
-                find_values(
-                    item,
-                    possible_keys,
-                )
-            )
-
-    return found
-
-
-# =========================================================
-# DETERMINE BROKER / CARRIER
-# =========================================================
-
-def determine_business_type(
-    data,
+def get_dot_from_mc(
+    mc_number: str,
 ) -> str:
-    """
-    Determine whether the entity is primarily
-    a BROKER or CARRIER.
 
-    We look at authority information returned
-    by FMCSA.
-
-    If broker authority is active/present and
-    carrier authority is not present, return BROKER.
-
-    Otherwise return CARRIER.
-    """
-
-    # Search possible broker fields
-    broker_values = find_values(
-        data,
-        [
-            "brokerAuthority",
-            "broker",
-            "brokerStatus",
-            "brokerAuthorityStatus",
-        ],
+    mc = remove_prefix(
+        mc_number
     )
 
-    # Search carrier/common/contract fields
-    carrier_values = find_values(
-        data,
-        [
-            "commonAuthority",
-            "contractAuthority",
-            "commonStatus",
-            "contractStatus",
-            "carrierAuthority",
-            "carrierStatus",
-        ],
+    endpoint = (
+        "/carriers/docket-number/"
+        + mc
+        + "/"
     )
 
-    broker_text = " ".join(
-        str(x).upper()
-        for x in broker_values
+    data = fmcsa_get(
+        endpoint
     )
 
-    carrier_text = " ".join(
-        str(x).upper()
-        for x in carrier_values
-    )
+    if not data:
 
-    broker_active = any(
-        word in broker_text
-        for word in (
-            "ACTIVE",
-            "AUTHORIZED",
-            "AUTH",
+        raise RuntimeError(
+            f"FMCSA did not find MC {mc}."
         )
-    )
-
-    carrier_active = any(
-        word in carrier_text
-        for word in (
-            "ACTIVE",
-            "AUTHORIZED",
-            "AUTH",
-        )
-    )
-
-    # Broker only
-    if broker_active and not carrier_active:
-        return "BROKER"
-
-    # If explicit broker field exists
-    if (
-        "BROKER" in broker_text
-        and not carrier_text
-    ):
-        return "BROKER"
-
-    # Default
-    return "CARRIER"
-
-
-# =========================================================
-# DETERMINE OPERATING STATUS
-# =========================================================
-
-def determine_operating_status(
-    data,
-) -> str:
-    """
-    Return:
-
-        ACTIVE
-        INACTIVE
-
-    based on FMCSA status / authority data.
-    """
-
-    values = find_values(
-        data,
-        [
-            "allowToOperate",
-            "operatingStatus",
-            "operatingAuthorityStatus",
-            "statusCode",
-            "usdotStatus",
-            "USDOTStatus",
-        ],
-    )
-
-    text = " ".join(
-        str(x).upper()
-        for x in values
-    )
-
-    # Explicit inactive conditions
-    inactive_words = (
-        "INACTIVE",
-        "OUT OF SERVICE",
-        "OUT-OF-SERVICE",
-        "NOT AUTHORIZED",
-        "REVOKED",
-        "INACTIVE",
-    )
-
-    for word in inactive_words:
-
-        if word in text:
-            return "INACTIVE"
-
-    # Explicit active conditions
-    active_words = (
-        "ACTIVE",
-        "AUTHORIZED",
-        "AUTHORIZED FOR",
-    )
-
-    for word in active_words:
-
-        if word in text:
-            return "ACTIVE"
-
-    # FMCSA often uses status code A
-    if re.search(
-        r"\bA\b",
-        text,
-    ):
-        return "ACTIVE"
-
-    return "INACTIVE"
-
-
-# =========================================================
-# EXTRACT EMAIL
-# =========================================================
-
-def extract_email(
-    data,
-) -> str:
-    """
-    FMCSA may not provide a public email address.
-
-    If the API contains one, use it.
-    Otherwise return Not available.
-    """
-
-    value = find_value(
-        data,
-        [
-            "email",
-            "emailAddress",
-            "emailAddr",
-            "contactEmail",
-        ],
-    )
-
-    if value:
-
-        value = str(value).strip()
-
-        if "@" in value:
-            return value
-
-    return "Not available"
-
-
-# =========================================================
-# EXTRACT LOCATION
-# =========================================================
-
-def extract_location(
-    data,
-) -> str:
-
-    # Try complete address first
-    complete = find_value(
-        data,
-        [
-            "physicalAddress",
-            "phyAddress",
-        ],
-    )
-
-    if complete:
-
-        text = str(
-            complete
-        ).strip()
-
-        if text:
-            return text
-
-    street = find_value(
-        data,
-        [
-            "phyStreet",
-            "physicalStreet",
-            "businessStreet",
-        ],
-    )
-
-    city = find_value(
-        data,
-        [
-            "phyCity",
-            "physicalCity",
-            "businessCity",
-        ],
-    )
-
-    state = find_value(
-        data,
-        [
-            "phyState",
-            "physicalState",
-            "businessState",
-        ],
-    )
-
-    zip_code = find_value(
-        data,
-        [
-            "phyZip",
-            "physicalZip",
-            "businessZipCode",
-            "zipCode",
-        ],
-    )
-
-    parts = []
-
-    for value in (
-        street,
-        city,
-        state,
-        zip_code,
-    ):
-
-        if value:
-
-            text = str(value).strip()
-
-            if text:
-                parts.append(text)
-
-    return ", ".join(parts)
-
-
-# =========================================================
-# PARSE FMCSA RECORD
-# =========================================================
-
-def parse_carrier_data(
-    data,
-    input_id: str,
-) -> Dict[str, str]:
 
     dot_number = find_value(
         data,
@@ -581,80 +254,745 @@ def parse_carrier_data(
         ],
     )
 
-    mc_number = find_value(
-        data,
-        [
-            "mcNumber",
-            "MCNumber",
-            "docketNumber",
-        ],
+    if not dot_number:
+
+        raise RuntimeError(
+            f"FMCSA found MC {mc}, "
+            "but did not return a DOT number."
+        )
+
+    return str(
+        dot_number
+    ).strip()
+
+
+# =========================================================
+# DOTSEARCH URL
+# =========================================================
+
+def dotsearch_url(
+    dot_number: str,
+) -> str:
+
+    dot = remove_prefix(
+        dot_number
     )
 
-    legal_name = find_value(
-        data,
-        [
-            "legalName",
-            "LegalName",
-        ],
+    return (
+        DOTSEARCH_BASE
+        + "/"
+        + dot
     )
 
-    dba_name = find_value(
-        data,
-        [
-            "dbaName",
-            "DBAName",
-        ],
+
+# =========================================================
+# DOWNLOAD DOTSEARCH PAGE
+# =========================================================
+
+def get_dotsearch_page(
+    dot_number: str,
+):
+
+    url = dotsearch_url(
+        dot_number
     )
 
-    # If API doesn't return MC number,
-    # use the input MC.
-    if not mc_number:
+    response = requests.get(
+        url,
+        timeout=REQUEST_TIMEOUT,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/131.0 Safari/537.36"
+            ),
+            "Accept": (
+                "text/html,"
+                "application/xhtml+xml,"
+                "application/xml;q=0.9,"
+                "*/*;q=0.8"
+            ),
+            "Accept-Language": (
+                "en-US,en;q=0.9"
+            ),
+        },
+    )
 
-        if classify_identifier(
-            input_id
-        ) in (
-            "MC",
-            "MX",
-            "FF",
-        ):
+    if response.status_code == 404:
 
-            mc_number = remove_prefix(
-                input_id
+        return None, url
+
+    response.raise_for_status()
+
+    return response.text, url
+
+
+# =========================================================
+# CLEAN TEXT
+# =========================================================
+
+def clean_text(
+    value: str,
+) -> str:
+
+    if not value:
+
+        return ""
+
+    value = re.sub(
+        r"\s+",
+        " ",
+        str(value),
+    )
+
+    return value.strip()
+
+
+# =========================================================
+# FIND SECTION BY HEADING
+# =========================================================
+
+def get_section_text(
+    soup,
+    heading_text: str,
+) -> str:
+    """
+    Find a heading such as:
+
+        Contact Information
+        Operation Information
+        Address
+
+    and return text from that section.
+    """
+
+    heading = soup.find(
+        lambda tag:
+        tag.name in [
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+        ]
+        and heading_text.lower()
+        in tag.get_text(
+            " ",
+            strip=True,
+        ).lower()
+    )
+
+    if not heading:
+
+        return ""
+
+    section_parts = []
+
+    for element in heading.find_all_next():
+
+        if element == heading:
+            continue
+
+        # Stop at another heading
+        if element.name in [
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+        ]:
+
+            break
+
+        text = clean_text(
+            element.get_text(
+                " ",
+                strip=True,
+            )
+        )
+
+        if text:
+            section_parts.append(
+                text
             )
 
-    business_type = determine_business_type(
-        data
+    return " ".join(
+        section_parts
+    )
+
+
+# =========================================================
+# EXTRACT EMAIL
+# =========================================================
+
+def extract_email(
+    soup,
+) -> str:
+
+    # First look for mailto links.
+    mailto = soup.find(
+        "a",
+        href=re.compile(
+            r"^mailto:",
+            re.I,
+        ),
+    )
+
+    if mailto:
+
+        href = mailto.get(
+            "href",
+            "",
+        )
+
+        email = re.sub(
+            r"^mailto:",
+            "",
+            href,
+            flags=re.I,
+        ).strip()
+
+        if "@" in email:
+
+            return email
+
+
+    # Look through page text for email
+    text = soup.get_text(
+        "\n",
+        strip=True,
+    )
+
+    match = re.search(
+        r"[A-Z0-9._%+-]+"
+        r"@[A-Z0-9.-]+\.[A-Z]{2,}",
+        text,
+        flags=re.I,
+    )
+
+    if match:
+
+        return match.group(
+            0
+        ).strip()
+
+
+    return "Not available"
+
+
+# =========================================================
+# EXTRACT LOCATION
+# =========================================================
+
+def extract_location(
+    soup,
+) -> str:
+
+    # Find the "Physical Address" label.
+    label = soup.find(
+        string=re.compile(
+            r"^\s*Physical Address\s*$",
+            re.I,
+        )
+    )
+
+    if label:
+
+        parent = label.parent
+
+        # Look for nearby address text.
+        text = clean_text(
+            parent.parent.get_text(
+                " ",
+                strip=True,
+            )
+        )
+
+        text = re.sub(
+            r"^Physical Address\s*",
+            "",
+            text,
+            flags=re.I,
+        ).strip()
+
+        if text:
+
+            # Remove accidental "Mailing Address"
+            text = re.split(
+                r"Mailing Address",
+                text,
+                flags=re.I,
+            )[0].strip()
+
+            if text:
+
+                return text
+
+
+    # Fallback: search for common US address
+    full_text = soup.get_text(
+        "\n",
+        strip=True,
+    )
+
+    # We don't want to accidentally return
+    # an unrelated address.
+    lines = [
+        clean_text(line)
+        for line in full_text.splitlines()
+    ]
+
+    for index, line in enumerate(
+        lines
+    ):
+
+        if re.search(
+            r"physical address",
+            line,
+            re.I,
+        ):
+
+            for candidate in lines[
+                index + 1:
+                index + 5
+            ]:
+
+                if re.search(
+                    r"\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b",
+                    candidate,
+                ):
+
+                    return candidate
+
+    return "Not available"
+
+
+# =========================================================
+# EXTRACT COMPANY NAME
+# =========================================================
+
+def extract_company_name(
+    soup,
+) -> str:
+
+    # DotSearch puts the company name
+    # at the top of the page.
+
+    h1 = soup.find(
+        "h1"
+    )
+
+    if h1:
+
+        name = clean_text(
+            h1.get_text(
+                " ",
+                strip=True,
+            )
+        )
+
+        if name:
+
+            return name
+
+
+    # Fallback:
+    # Find page title.
+
+    title = soup.find(
+        "title"
+    )
+
+    if title:
+
+        text = clean_text(
+            title.get_text(
+                " ",
+                strip=True,
+            )
+        )
+
+        # Remove common suffix.
+        text = re.sub(
+            r"\s*-\s*DOT\s*#.*$",
+            "",
+            text,
+            flags=re.I,
+        )
+
+        if text:
+
+            return text
+
+
+    return "Not available"
+
+
+# =========================================================
+# EXTRACT MC NUMBER
+# =========================================================
+
+def extract_mc_number(
+    soup,
+    fallback_mc: str,
+) -> str:
+
+    text = soup.get_text(
+        "\n",
+        strip=True,
+    )
+
+    match = re.search(
+        r"\bMC\s+([0-9]+)\b",
+        text,
+        flags=re.I,
+    )
+
+    if match:
+
+        return match.group(
+            1
+        )
+
+    return remove_prefix(
+        fallback_mc
+    )
+
+
+# =========================================================
+# EXTRACT BROKER / CARRIER
+# =========================================================
+
+def extract_business_type(
+    soup,
+) -> str:
+
+    text = soup.get_text(
+        "\n",
+        strip=True,
+    )
+
+
+    # =====================================================
+    # FIRST: DotSearch normally shows this near the top:
+    #
+    # Carrier
+    #
+    # or
+    #
+    # Broker
+    # =====================================================
+
+    # Search explicit standalone labels.
+    if re.search(
+        r"(?m)^\s*Broker\s*$",
+        text,
+        re.I,
+    ):
+
+        return "BROKER"
+
+    if re.search(
+        r"(?m)^\s*Carrier\s*$",
+        text,
+        re.I,
+    ):
+
+        return "CARRIER"
+
+
+    # =====================================================
+    # SECOND: USE AUTHORITY SECTION
+    #
+    # Common: Active
+    # Contract: None
+    # Broker: None
+    #
+    # If Broker is active → BROKER
+    # Otherwise carrier authority → CARRIER
+    # =====================================================
+
+    authority_match = re.search(
+        r"Common:\s*([^\s]+)"
+        r".*?"
+        r"Contract:\s*([^\s]+)"
+        r".*?"
+        r"Broker:\s*([^\s]+)",
+        text,
+        flags=re.I | re.S,
+    )
+
+    if authority_match:
+
+        common_status = (
+            authority_match.group(1)
+            .strip()
+            .upper()
+        )
+
+        contract_status = (
+            authority_match.group(2)
+            .strip()
+            .upper()
+        )
+
+        broker_status = (
+            authority_match.group(3)
+            .strip()
+            .upper()
+        )
+
+        if broker_status not in (
+            "",
+            "NONE",
+            "INACTIVE",
+            "N/A",
+        ):
+
+            return "BROKER"
+
+        if common_status not in (
+            "",
+            "NONE",
+            "INACTIVE",
+            "N/A",
+        ):
+
+            return "CARRIER"
+
+        if contract_status not in (
+            "",
+            "NONE",
+            "INACTIVE",
+            "N/A",
+        ):
+
+            return "CARRIER"
+
+
+    return "CARRIER"
+
+
+# =========================================================
+# EXTRACT OPERATING STATUS
+# =========================================================
+
+def extract_operating_status(
+    soup,
+) -> str:
+
+    text = soup.get_text(
+        "\n",
+        strip=True,
+    )
+
+
+    # =====================================================
+    # DotSearch authority example:
+    #
+    # Common: Active Contract: None Broker: None
+    # =====================================================
+
+    authority_match = re.search(
+        r"Common:\s*([^\s]+)"
+        r".*?"
+        r"Contract:\s*([^\s]+)"
+        r".*?"
+        r"Broker:\s*([^\s]+)",
+        text,
+        flags=re.I | re.S,
+    )
+
+
+    if authority_match:
+
+        common_status = (
+            authority_match.group(1)
+            .strip()
+            .upper()
+        )
+
+        contract_status = (
+            authority_match.group(2)
+            .strip()
+            .upper()
+        )
+
+        broker_status = (
+            authority_match.group(3)
+            .strip()
+            .upper()
+        )
+
+
+        statuses = [
+            common_status,
+            contract_status,
+            broker_status,
+        ]
+
+
+        # If any authority is active,
+        # operating status = ACTIVE.
+        if any(
+            status == "ACTIVE"
+            for status in statuses
+        ):
+
+            return "ACTIVE"
+
+
+        # If all authorities are none/inactive,
+        # return inactive.
+        if all(
+            status in (
+                "",
+                "NONE",
+                "INACTIVE",
+                "N/A",
+            )
+            for status in statuses
+        ):
+
+            return "INACTIVE"
+
+
+    # =====================================================
+    # Fallback searches
+    # =====================================================
+
+    if re.search(
+        r"\bActive\b",
+        text,
+        re.I,
+    ):
+
+        return "ACTIVE"
+
+
+    if re.search(
+        r"\bInactive\b",
+        text,
+        re.I,
+    ):
+
+        return "INACTIVE"
+
+
+    return "INACTIVE"
+
+
+# =========================================================
+# SCRAPE DOTSEARCH
+# =========================================================
+
+def scrape_dotsearch(
+    mc_number: str,
+    dot_number: str,
+) -> dict:
+
+    html, url = get_dotsearch_page(
+        dot_number
+    )
+
+    if not html:
+
+        return {
+            "MC Number": remove_prefix(
+                mc_number
+            ),
+
+            "Carrier/Broker Name": (
+                "Not found"
+            ),
+
+            "Broker/Carrier": (
+                "Not found"
+            ),
+
+            "Operating Status": (
+                "INACTIVE"
+            ),
+
+            "Email Address": (
+                "Not available"
+            ),
+
+            "Location": (
+                "Not available"
+            ),
+
+            "_dot_number": (
+                remove_prefix(
+                    dot_number
+                )
+            ),
+
+            "_dotsearch_url": url,
+
+            "_error": (
+                "DotSearch page returned 404."
+            ),
+        }
+
+
+    soup = BeautifulSoup(
+        html,
+        "html.parser",
+    )
+
+
+    # =====================================================
+    # EXTRACT DATA FROM DOTSEARCH
+    # =====================================================
+
+    company_name = (
+        extract_company_name(
+            soup
+        )
+    )
+
+    business_type = (
+        extract_business_type(
+            soup
+        )
     )
 
     operating_status = (
-        determine_operating_status(
-            data
+        extract_operating_status(
+            soup
         )
     )
 
     email = extract_email(
-        data
+        soup
     )
 
     location = extract_location(
-        data
+        soup
     )
+
+    mc = extract_mc_number(
+        soup,
+        mc_number,
+    )
+
 
     return {
 
-        "MC Number": (
-            str(mc_number)
-            if mc_number
-            else ""
-        ),
+        "MC Number": mc,
 
         "Carrier/Broker Name": (
-            str(legal_name)
-            if legal_name
-            else ""
+            company_name
         ),
 
-        "Type": business_type,
+        "Broker/Carrier": (
+            business_type
+        ),
 
         "Operating Status": (
             operating_status
@@ -664,137 +1002,159 @@ def parse_carrier_data(
 
         "Location": location,
 
-        # Internal fields
-        # These can still be used by the app
-        # but won't necessarily be displayed.
         "_dot_number": (
-            str(dot_number)
-            if dot_number
-            else ""
+            remove_prefix(
+                dot_number
+            )
         ),
 
-        "_dba_name": (
-            str(dba_name)
-            if dba_name
-            else ""
-        ),
+        "_dotsearch_url": url,
 
-        "_raw": data,
+        "_error": "",
     }
 
 
 # =========================================================
-# SEARCH BY DOT
+# SEARCH ONE MC
 # =========================================================
 
-def search_by_dot(
-    dot_number: str,
-) -> Dict[str, str]:
+def search_one(
+    mc_number: str,
+) -> dict:
 
-    clean_dot = remove_prefix(
-        dot_number
-    )
+    mc_number = str(
+        mc_number
+    ).strip()
+
+
+    if not mc_number:
+
+        return {
+            "MC Number": "",
+            "Carrier/Broker Name": "",
+            "Broker/Carrier": "",
+            "Operating Status": "INACTIVE",
+            "Email Address": "Not available",
+            "Location": "Not available",
+            "_dot_number": "",
+            "_dotsearch_url": "",
+            "_error": "Blank MC number.",
+        }
+
+
+    # =====================================================
+    # STEP 1
+    # FMCSA ONLY
+    # MC → DOT
+    # =====================================================
 
     try:
 
-        data = fmcsa_get(
-            "/carriers/" + clean_dot
+        dot_number = get_dot_from_mc(
+            mc_number
         )
 
-        if not data:
+    except Exception as exc:
 
-            return {
-                "MC Number": clean_dot,
-                "Carrier/Broker Name": "",
-                "Type": "",
-                "Operating Status": "INACTIVE",
-                "Email Address": "Not available",
-                "Location": "",
-                "_dot_number": clean_dot,
-                "_dba_name": "",
-                "_error": (
-                    "FMCSA record not found."
-                ),
-            }
+        return {
+            "MC Number": remove_prefix(
+                mc_number
+            ),
 
-        return parse_carrier_data(
-            data,
+            "Carrier/Broker Name": (
+                "Not found"
+            ),
+
+            "Broker/Carrier": (
+                "Not found"
+            ),
+
+            "Operating Status": (
+                "INACTIVE"
+            ),
+
+            "Email Address": (
+                "Not available"
+            ),
+
+            "Location": (
+                "Not available"
+            ),
+
+            "_dot_number": "",
+
+            "_dotsearch_url": "",
+
+            "_error": (
+                "FMCSA MC → DOT error: "
+                + str(exc)
+            ),
+        }
+
+
+    # =====================================================
+    # STEP 2
+    # DOTSEARCH
+    # DOT → ALL USER DATA
+    # =====================================================
+
+    try:
+
+        result = scrape_dotsearch(
+            mc_number,
             dot_number,
         )
 
-    except Exception as exc:
-
-        return {
-            "MC Number": clean_dot,
-            "Carrier/Broker Name": "",
-            "Type": "",
-            "Operating Status": "INACTIVE",
-            "Email Address": "Not available",
-            "Location": "",
-            "_dot_number": clean_dot,
-            "_dba_name": "",
-            "_error": str(exc),
-        }
-
-
-# =========================================================
-# SEARCH BY MC
-# =========================================================
-
-def search_by_mc(
-    mc_number: str,
-) -> Dict[str, str]:
-
-    clean_mc = remove_prefix(
-        mc_number
-    )
-
-    try:
-
-        data = fmcsa_get(
-            "/carriers/docket-number/"
-            + clean_mc
-            + "/"
-        )
-
-        if not data:
-
-            return {
-                "MC Number": clean_mc,
-                "Carrier/Broker Name": "",
-                "Type": "",
-                "Operating Status": "INACTIVE",
-                "Email Address": "Not available",
-                "Location": "",
-                "_dot_number": "",
-                "_dba_name": "",
-                "_error": (
-                    "FMCSA record not found."
-                ),
-            }
-
-        return parse_carrier_data(
-            data,
-            mc_number,
-        )
+        return result
 
     except Exception as exc:
 
         return {
-            "MC Number": clean_mc,
-            "Carrier/Broker Name": "",
-            "Type": "",
-            "Operating Status": "INACTIVE",
-            "Email Address": "Not available",
-            "Location": "",
-            "_dot_number": "",
-            "_dba_name": "",
-            "_error": str(exc),
+            "MC Number": remove_prefix(
+                mc_number
+            ),
+
+            "Carrier/Broker Name": (
+                "Not found"
+            ),
+
+            "Broker/Carrier": (
+                "Not found"
+            ),
+
+            "Operating Status": (
+                "INACTIVE"
+            ),
+
+            "Email Address": (
+                "Not available"
+            ),
+
+            "Location": (
+                "Not available"
+            ),
+
+            "_dot_number": (
+                remove_prefix(
+                    dot_number
+                )
+            ),
+
+            "_dotsearch_url": (
+                dotsearch_url(
+                    dot_number
+                )
+            ),
+
+            "_error": (
+                "DotSearch scraping error: "
+                + str(exc)
+            ),
         }
 
 
 # =========================================================
-# SEARCH ONE
+# BACKWARD-COMPATIBLE FUNCTION
 # =========================================================
 
 def fetch_one(
@@ -802,60 +1162,12 @@ def fetch_one(
     session: Optional[
         requests.Session
     ] = None,
-    timeout: int = DEFAULT_TIMEOUT,
-) -> Dict[str, str]:
+    timeout: int = REQUEST_TIMEOUT,
+) -> dict:
 
-    identifier = str(
-        identifier
-    ).strip()
-
-    if not identifier:
-
-        return {
-            "MC Number": "",
-            "Carrier/Broker Name": "",
-            "Type": "",
-            "Operating Status": "INACTIVE",
-            "Email Address": "Not available",
-            "Location": "",
-            "_dot_number": "",
-            "_dba_name": "",
-            "_error": "Blank input.",
-        }
-
-    kind = classify_identifier(
+    return search_one(
         identifier
     )
-
-    if kind in (
-        "MC",
-        "MX",
-        "FF",
-    ):
-
-        return search_by_mc(
-            identifier
-        )
-
-    if kind == "DOT":
-
-        return search_by_dot(
-            identifier
-        )
-
-    return {
-        "MC Number": identifier,
-        "Carrier/Broker Name": "",
-        "Type": "",
-        "Operating Status": "INACTIVE",
-        "Email Address": "Not available",
-        "Location": "",
-        "_dot_number": "",
-        "_dba_name": "",
-        "_error": (
-            "Unknown identifier type."
-        ),
-    }
 
 
 # =========================================================
@@ -864,7 +1176,7 @@ def fetch_one(
 
 def bulk_fetch(
     identifiers,
-    delay_seconds: float = 0.5,
+    delay_seconds: float = DOTSEARCH_DELAY,
     progress_callback=None,
 ):
 
@@ -874,30 +1186,35 @@ def bulk_fetch(
         identifiers
     )
 
+
+    # Check API key once.
     if not get_fmcsa_web_key():
 
         return [
             {
                 "MC Number": "",
                 "Carrier/Broker Name": "",
-                "Type": "",
+                "Broker/Carrier": "",
                 "Operating Status": "INACTIVE",
                 "Email Address": "Not available",
-                "Location": "",
+                "Location": "Not available",
                 "_dot_number": "",
-                "_dba_name": "",
+                "_dotsearch_url": "",
                 "_error": (
-                    "FMCSA API key is missing."
+                    "FMCSA API key is missing. "
+                    "Add FMCSA_WEB_KEY to "
+                    "Streamlit Secrets."
                 ),
             }
         ]
+
 
     for index, identifier in enumerate(
         identifiers,
         start=1,
     ):
 
-        result = fetch_one(
+        result = search_one(
             identifier
         )
 
@@ -905,12 +1222,18 @@ def bulk_fetch(
             result
         )
 
+
         if progress_callback:
 
             progress_callback(
                 index,
                 total,
             )
+
+
+        # =================================================
+        # Delay between searches
+        # =================================================
 
         if (
             index < total
@@ -920,5 +1243,6 @@ def bulk_fetch(
             time.sleep(
                 delay_seconds
             )
+
 
     return results
