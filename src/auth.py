@@ -21,6 +21,7 @@ LOCKOUT_SECONDS = 300
 # =========================================================
 
 def init_auth_state():
+
     defaults = {
         "authenticated": False,
         "login_attempts": 0,
@@ -29,7 +30,9 @@ def init_auth_state():
     }
 
     for key, value in defaults.items():
+
         if key not in st.session_state:
+
             st.session_state[key] = value
 
 
@@ -38,38 +41,47 @@ def init_auth_state():
 # =========================================================
 
 def hash_password(password: str) -> str:
+
     return hashlib.sha256(
         password.encode("utf-8")
     ).hexdigest()
 
 
 # =========================================================
-# STORED PASSWORD
+# GET PASSWORD HASH
 # =========================================================
 
 def get_password_hash() -> str:
+
     try:
+
         value = st.secrets.get(
             "ADMIN_PASSWORD_HASH",
             "",
         )
+
     except Exception:
+
         value = ""
 
     return str(value).strip()
 
 
 # =========================================================
-# PASSWORD CHECK
+# CHECK PASSWORD
 # =========================================================
 
 def check_password(password: str) -> bool:
+
     stored_hash = get_password_hash()
 
     if not stored_hash:
+
         return False
 
-    supplied_hash = hash_password(password)
+    supplied_hash = hash_password(
+        password
+    )
 
     return hmac.compare_digest(
         supplied_hash,
@@ -82,6 +94,7 @@ def check_password(password: str) -> bool:
 # =========================================================
 
 def is_locked() -> bool:
+
     locked_until = float(
         st.session_state.get(
             "login_locked_until",
@@ -93,6 +106,7 @@ def is_locked() -> bool:
 
 
 def seconds_remaining() -> int:
+
     remaining = (
         float(
             st.session_state.get(
@@ -103,7 +117,10 @@ def seconds_remaining() -> int:
         - time.time()
     )
 
-    return max(0, int(remaining))
+    return max(
+        0,
+        int(remaining),
+    )
 
 
 # =========================================================
@@ -111,9 +128,11 @@ def seconds_remaining() -> int:
 # =========================================================
 
 def login_user(password: str) -> bool:
+
     init_auth_state()
 
     if is_locked():
+
         return False
 
     if check_password(password):
@@ -124,14 +143,12 @@ def login_user(password: str) -> bool:
 
         st.session_state.login_locked_until = 0.0
 
-        # Fresh random session token
         st.session_state.session_token = (
             secrets.token_urlsafe(32)
         )
 
         return True
 
-    # Failed attempt
     st.session_state.login_attempts += 1
 
     if (
@@ -154,6 +171,7 @@ def login_user(password: str) -> bool:
 # =========================================================
 
 def logout_user():
+
     st.session_state.authenticated = False
 
     st.session_state.session_token = ""
@@ -164,10 +182,11 @@ def logout_user():
 
 
 # =========================================================
-# AUTHENTICATION CHECK
+# AUTHENTICATED?
 # =========================================================
 
 def is_authenticated() -> bool:
+
     init_auth_state()
 
     return bool(
@@ -177,408 +196,434 @@ def is_authenticated() -> bool:
 
 
 # =========================================================
-# LOGIN PAGE
+# LOGIN SCREEN
 # =========================================================
 
 def require_login():
 
     init_auth_state()
 
+    # -----------------------------------------------------
     # Already authenticated
+    # -----------------------------------------------------
+
     if is_authenticated():
+
         return True
 
-    # -----------------------------------------------------
-    # LOGIN CSS
-    # -----------------------------------------------------
+
+    # =====================================================
+    # LOGIN PAGE CSS
+    # =====================================================
 
     st.markdown(
         """
-        <style>
-
-        /* =================================================
-           LOGIN BACKGROUND
-           ================================================= */
-
-        .stApp {
-            background:
-                radial-gradient(
-                    circle at 20% 20%,
-                    rgba(82, 107, 255, 0.18),
-                    transparent 32%
-                ),
-                radial-gradient(
-                    circle at 80% 25%,
-                    rgba(181, 70, 255, 0.16),
-                    transparent 32%
-                ),
-                radial-gradient(
-                    circle at 50% 90%,
-                    rgba(0, 190, 255, 0.08),
-                    transparent 35%
-                ),
-                linear-gradient(
-                    135deg,
-                    #05060a 0%,
-                    #0b0d15 50%,
-                    #05060a 100%
-                );
-        }
-
-
-        /* =================================================
-           LOGIN CARD
-           ================================================= */
-
-        .login-card {
-            max-width: 480px;
-
-            margin:
-                10vh auto 0 auto;
-
-            padding:
-                42px 42px 36px 42px;
-
-            border-radius:
-                30px;
-
-            background:
-                linear-gradient(
-                    135deg,
-                    rgba(255,255,255,0.12),
-                    rgba(255,255,255,0.035)
-                );
-
-            border:
-                1px solid
-                rgba(255,255,255,0.14);
-
-            box-shadow:
-                0 30px 100px
-                rgba(0,0,0,0.55),
-
-                0 0 70px
-                rgba(91,95,255,0.08),
-
-                inset 0 1px 0
-                rgba(255,255,255,0.10);
-
-            backdrop-filter:
-                blur(30px)
-                saturate(160%);
-
-            -webkit-backdrop-filter:
-                blur(30px)
-                saturate(160%);
+<style>
 
-            text-align:
-                center;
-        }
-
-
-        /* =================================================
-           LOCK ICON
-           ================================================= */
-
-        .login-lock {
-            width:
-                76px;
-
-            height:
-                76px;
+.stApp {
 
-            margin:
-                0 auto 22px auto;
-
-            display:
-                flex;
-
-            align-items:
-                center;
+    background:
+        radial-gradient(
+            circle at 15% 15%,
+            rgba(80,110,255,0.18),
+            transparent 32%
+        ),
 
-            justify-content:
-                center;
+        radial-gradient(
+            circle at 85% 20%,
+            rgba(170,70,255,0.16),
+            transparent 32%
+        ),
 
-            border-radius:
-                24px;
+        linear-gradient(
+            135deg,
+            #05060a 0%,
+            #0b0d16 50%,
+            #05060a 100%
+        );
 
-            font-size:
-                34px;
+}
 
-            background:
-                linear-gradient(
-                    135deg,
-                    rgba(110,130,255,0.25),
-                    rgba(180,80,255,0.20)
-                );
 
-            border:
-                1px solid
-                rgba(150,160,255,0.25);
+/* ================================================
+   LOGIN CARD
+   ================================================ */
 
-            box-shadow:
-                0 0 35px
-                rgba(100,110,255,0.18),
+.login-card {
 
-                inset 0 1px 0
-                rgba(255,255,255,0.12);
+    max-width:
+        480px;
 
-            animation:
-                lockPulse 2.4s
-                ease-in-out
-                infinite;
-        }
+    margin:
+        9vh auto 25px auto;
 
+    padding:
+        42px;
 
-        @keyframes lockPulse {
+    border-radius:
+        30px;
 
-            0%,
-            100% {
-                box-shadow:
-                    0 0 25px
-                    rgba(100,110,255,0.12),
+    background:
+        linear-gradient(
+            135deg,
+            rgba(255,255,255,0.11),
+            rgba(255,255,255,0.035)
+        );
 
-                    inset 0 1px 0
-                    rgba(255,255,255,0.12);
-            }
+    border:
+        1px solid
+        rgba(255,255,255,0.14);
 
-            50% {
-                box-shadow:
-                    0 0 45px
-                    rgba(100,110,255,0.28),
+    box-shadow:
 
-                    0 0 80px
-                    rgba(160,70,255,0.10),
+        0 30px 100px
+        rgba(0,0,0,0.55),
 
-                    inset 0 1px 0
-                    rgba(255,255,255,0.16);
-            }
-        }
+        0 0 70px
+        rgba(100,90,255,0.10),
 
+        inset 0 1px 0
+        rgba(255,255,255,0.08);
 
-        /* =================================================
-           TITLE
-           ================================================= */
+    backdrop-filter:
+        blur(30px)
+        saturate(160%);
 
-        .login-title {
-            font-size:
-                2.35rem;
+    -webkit-backdrop-filter:
+        blur(30px)
+        saturate(160%);
 
-            font-weight:
-                800;
+    text-align:
+        center;
 
-            letter-spacing:
-                -0.045em;
+}
 
-            background:
-                linear-gradient(
-                    90deg,
-                    #ffffff,
-                    #c1caff,
-                    #ffffff
-                );
 
-            -webkit-background-clip:
-                text;
+/* ================================================
+   LOCK
+   ================================================ */
 
-            -webkit-text-fill-color:
-                transparent;
-        }
+.login-lock {
 
+    width:
+        76px;
 
-        /* =================================================
-           SUBTITLE
-           ================================================= */
+    height:
+        76px;
 
-        .login-subtitle {
-            color:
-                rgba(220,225,245,0.62);
+    margin:
+        0 auto 22px auto;
 
-            font-size:
-                0.98rem;
+    display:
+        flex;
 
-            margin-top:
-                8px;
+    align-items:
+        center;
 
-            margin-bottom:
-                28px;
-        }
+    justify-content:
+        center;
 
+    border-radius:
+        24px;
 
-        /* =================================================
-           LOGIN INPUT
-           ================================================= */
+    font-size:
+        34px;
 
-        div[data-baseweb="input"] {
+    background:
+        linear-gradient(
+            135deg,
+            rgba(90,120,255,0.25),
+            rgba(180,70,255,0.20)
+        );
 
-            background:
-                rgba(255,255,255,0.055)
-                !important;
+    border:
+        1px solid
+        rgba(140,150,255,0.25);
 
-            border:
-                1px solid
-                rgba(255,255,255,0.12)
-                !important;
+    box-shadow:
 
-            border-radius:
-                18px
-                !important;
+        0 0 30px
+        rgba(90,110,255,0.18),
 
-            transition:
-                all 0.25s ease;
-        }
+        inset 0 1px 0
+        rgba(255,255,255,0.12);
 
+    animation:
+        loginPulse 2.5s
+        ease-in-out
+        infinite;
 
-        div[data-baseweb="input"]:focus-within {
+}
 
-            border-color:
-                rgba(120,145,255,0.85)
-                !important;
 
-            box-shadow:
-                0 0 0 3px
-                rgba(100,125,255,0.10),
+@keyframes loginPulse {
 
-                0 0 35px
-                rgba(80,100,255,0.14);
-        }
+    0%,
+    100% {
 
+        box-shadow:
 
-        input {
+            0 0 25px
+            rgba(90,110,255,0.12),
 
-            color:
-                white
-                !important;
+            inset 0 1px 0
+            rgba(255,255,255,0.10);
 
-            font-size:
-                1rem
-                !important;
-        }
+    }
 
+    50% {
 
-        /* =================================================
-           SIGN IN BUTTON
-           ================================================= */
+        box-shadow:
 
-        .stButton > button {
+            0 0 45px
+            rgba(90,110,255,0.30),
 
-            min-height:
-                52px;
+            0 0 80px
+            rgba(170,70,255,0.12),
 
-            border-radius:
-                18px
-                !important;
+            inset 0 1px 0
+            rgba(255,255,255,0.16);
 
-            border:
-                1px solid
-                rgba(130,145,255,0.25)
-                !important;
+    }
 
-            background:
-                linear-gradient(
-                    135deg,
-                    rgba(95,120,255,0.30),
-                    rgba(150,75,255,0.25)
-                )
-                !important;
+}
 
-            color:
-                white
-                !important;
 
-            font-weight:
-                700
-                !important;
+/* ================================================
+   TITLE
+   ================================================ */
 
-            box-shadow:
-                0 12px 35px
-                rgba(70,80,220,0.18),
+.login-title {
 
-                inset 0 1px 0
-                rgba(255,255,255,0.12);
+    font-size:
+        2.4rem;
 
-            transition:
-                all 0.22s ease;
-        }
+    font-weight:
+        800;
 
+    letter-spacing:
+        -0.05em;
 
-        .stButton > button:hover {
+    background:
+        linear-gradient(
+            90deg,
+            #ffffff,
+            #bcc7ff,
+            #ffffff
+        );
 
-            transform:
-                translateY(-2px)
-                scale(1.01);
+    -webkit-background-clip:
+        text;
 
-            box-shadow:
-                0 16px 45px
-                rgba(80,95,255,0.30),
+    -webkit-text-fill-color:
+        transparent;
 
-                0 0 30px
-                rgba(130,70,255,0.14),
+}
 
-                inset 0 1px 0
-                rgba(255,255,255,0.15);
-        }
 
+/* ================================================
+   SUBTITLE
+   ================================================ */
 
-        .stButton > button:active {
+.login-subtitle {
 
-            transform:
-                scale(0.97);
-        }
+    color:
+        rgba(220,225,245,0.62);
 
+    font-size:
+        1rem;
 
-        /* =================================================
-           SECURITY FOOTER
-           ================================================= */
+    margin-top:
+        8px;
 
-        .login-security {
+}
 
-            margin-top:
-                24px;
 
-            color:
-                rgba(180,188,215,0.45);
+/* ================================================
+   PASSWORD
+   ================================================ */
 
-            font-size:
-                0.78rem;
-        }
+div[data-baseweb="input"] {
 
+    background:
+        rgba(255,255,255,0.055)
+        !important;
 
-        </style>
-        """,
+    border:
+        1px solid
+        rgba(255,255,255,0.12)
+        !important;
+
+    border-radius:
+        18px
+        !important;
+
+    transition:
+        all 0.25s ease;
+
+}
+
+
+div[data-baseweb="input"]:focus-within {
+
+    border-color:
+        rgba(120,145,255,0.90)
+        !important;
+
+    box-shadow:
+
+        0 0 0 3px
+        rgba(100,125,255,0.10),
+
+        0 0 35px
+        rgba(80,100,255,0.16);
+
+}
+
+
+input {
+
+    color:
+        white
+        !important;
+
+}
+
+
+/* ================================================
+   SIGN IN BUTTON
+   ================================================ */
+
+.stButton > button {
+
+    min-height:
+        52px;
+
+    border-radius:
+        18px
+        !important;
+
+    border:
+        1px solid
+        rgba(130,145,255,0.28)
+        !important;
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(90,115,255,0.32),
+            rgba(145,70,255,0.26)
+        )
+        !important;
+
+    color:
+        white
+        !important;
+
+    font-weight:
+        700
+        !important;
+
+    box-shadow:
+
+        0 12px 35px
+        rgba(70,80,220,0.20),
+
+        inset 0 1px 0
+        rgba(255,255,255,0.12);
+
+    transition:
+        all 0.22s ease;
+
+}
+
+
+.stButton > button:hover {
+
+    transform:
+        translateY(-2px)
+        scale(1.015);
+
+    box-shadow:
+
+        0 16px 45px
+        rgba(80,95,255,0.32),
+
+        0 0 30px
+        rgba(130,70,255,0.16),
+
+        inset 0 1px 0
+        rgba(255,255,255,0.15);
+
+}
+
+
+.stButton > button:active {
+
+    transform:
+        scale(0.97);
+
+}
+
+
+/* ================================================
+   FOOTER
+   ================================================ */
+
+.login-security {
+
+    text-align:
+        center;
+
+    color:
+        rgba(180,188,215,0.45);
+
+    font-size:
+        0.78rem;
+
+    margin-top:
+        18px;
+
+}
+
+</style>
+""",
         unsafe_allow_html=True,
     )
 
 
-    # -----------------------------------------------------
+    # =====================================================
     # LOGIN CARD
-    # -----------------------------------------------------
+    #
+    # IMPORTANT:
+    # This is deliberately a SEPARATE st.markdown call.
+    # =====================================================
 
     st.markdown(
         """
-        <div class="login-card">
+<div class="login-card">
 
-            <div class="login-lock">
-                🔐
-            </div>
+    <div class="login-lock">
+        🔐
+    </div>
 
-            <div class="login-title">
-                ✦ MC Search
-            </div>
+    <div class="login-title">
+        ✦ MC Search
+    </div>
 
-            <div class="login-subtitle">
-                Secure access required
-            </div>
+    <div class="login-subtitle">
+        Secure access required
+    </div>
 
-        </div>
-        """,
+</div>
+""",
         unsafe_allow_html=True,
     )
 
 
-    # -----------------------------------------------------
+    # =====================================================
     # LOCKOUT
-    # -----------------------------------------------------
+    # =====================================================
 
     if is_locked():
 
@@ -594,9 +639,9 @@ def require_login():
         st.stop()
 
 
-    # -----------------------------------------------------
+    # =====================================================
     # PASSWORD
-    # -----------------------------------------------------
+    # =====================================================
 
     password = st.text_input(
         "Password",
@@ -606,9 +651,9 @@ def require_login():
     )
 
 
-    # -----------------------------------------------------
+    # =====================================================
     # SIGN IN
-    # -----------------------------------------------------
+    # =====================================================
 
     login_button = st.button(
         "🔐  Sign In",
@@ -646,7 +691,7 @@ def require_login():
 
             else:
 
-                remaining_attempts = (
+                remaining = (
                     MAX_LOGIN_ATTEMPTS
                     - st.session_state.login_attempts
                 )
@@ -655,21 +700,24 @@ def require_login():
                     "Incorrect password."
                 )
 
-                if remaining_attempts > 0:
+                st.caption(
+                    f"{remaining} attempt(s) remaining."
+                )
 
-                    st.caption(
-                        f"{remaining_attempts} "
-                        "attempt(s) remaining."
-                    )
 
+    # =====================================================
+    # SECURITY FOOTER
+    # =====================================================
 
     st.markdown(
         """
-        <div class="login-security">
-            🔒 Protected session • Secure authentication
-        </div>
-        """,
+<div class="login-security">
+    🔒 Protected session • Secure authentication
+</div>
+""",
         unsafe_allow_html=True,
     )
 
+
+    # Stop app until authenticated
     st.stop()
