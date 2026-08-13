@@ -23,30 +23,41 @@ st.set_page_config(
 # SESSION STATE
 # =========================================================
 
-if "running" not in st.session_state:
-    st.session_state.running = False
+DEFAULTS = {
+    "running": False,
+    "current_mc": None,
+    "results": [],
+    "start_mc": "",
+    "searched_count": 0,
+    "clear_animation": False,
+}
 
-if "current_mc" not in st.session_state:
-    st.session_state.current_mc = None
-
-if "start_mc" not in st.session_state:
-    st.session_state.start_mc = ""
-
-if "searched_count" not in st.session_state:
-    st.session_state.searched_count = 0
-
-if "results" not in st.session_state:
-    st.session_state.results = []
-
-if "show_black_hole" not in st.session_state:
-    st.session_state.show_black_hole = False
-
-if "mc_input" not in st.session_state:
-    st.session_state.mc_input = ""
+for key, value in DEFAULTS.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 
 # =========================================================
-# MODERN GLASS UI
+# HELPERS
+# =========================================================
+
+def clean_mc(value):
+    return (
+        str(value or "")
+        .strip()
+        .replace("MC", "")
+        .replace("mc", "")
+        .strip()
+    )
+
+
+def reset_search():
+    st.session_state.running = False
+    st.session_state.current_mc = None
+
+
+# =========================================================
+# CSS
 # =========================================================
 
 st.markdown(
@@ -58,46 +69,41 @@ st.markdown(
    ===================================================== */
 
 .stApp {
-
     background:
         radial-gradient(
-            circle at 10% 10%,
-            rgba(70, 100, 255, 0.20),
+            circle at 10% 5%,
+            rgba(74, 100, 255, 0.20),
             transparent 28%
         ),
         radial-gradient(
             circle at 90% 10%,
-            rgba(170, 70, 255, 0.18),
+            rgba(180, 70, 255, 0.18),
             transparent 30%
         ),
         radial-gradient(
             circle at 50% 100%,
-            rgba(30, 100, 255, 0.10),
+            rgba(30, 120, 255, 0.10),
             transparent 35%
         ),
         linear-gradient(
             135deg,
-            #04050a 0%,
-            #0a0d16 48%,
-            #04050a 100%
+            #04050a,
+            #090b13 50%,
+            #04050a
         );
 
     color: #f5f7ff;
-
 }
 
 
 /* =====================================================
-   MAIN
+   CONTAINER
    ===================================================== */
 
 .block-container {
-
     max-width: 1450px;
-
     padding-top: 2rem;
     padding-bottom: 5rem;
-
 }
 
 
@@ -106,42 +112,33 @@ st.markdown(
    ===================================================== */
 
 h1 {
-
-    font-size: 3rem !important;
-
+    font-size: 3.1rem !important;
     font-weight: 800 !important;
-
     letter-spacing: -0.055em;
 
     background:
         linear-gradient(
             90deg,
             #ffffff,
-            #aebdff,
+            #aebcff,
             #ffffff
         );
 
     -webkit-background-clip: text;
-
     -webkit-text-fill-color: transparent;
-
 }
-
 
 h2,
 h3 {
-
-    color: #f5f7ff !important;
-
+    color: #ffffff !important;
 }
 
 
 /* =====================================================
-   GLASS CARD
+   GLASS
    ===================================================== */
 
 .glass-card {
-
     background:
         linear-gradient(
             135deg,
@@ -150,23 +147,7 @@ h3 {
         );
 
     border:
-        1px solid
-        rgba(255,255,255,0.12);
-
-    box-shadow:
-        0 25px 80px
-        rgba(0,0,0,0.42),
-
-        inset 0 1px 0
-        rgba(255,255,255,0.09);
-
-    backdrop-filter:
-        blur(28px)
-        saturate(160%);
-
-    -webkit-backdrop-filter:
-        blur(28px)
-        saturate(160%);
+        1px solid rgba(255,255,255,0.12);
 
     border-radius: 28px;
 
@@ -174,6 +155,17 @@ h3 {
 
     margin-bottom: 20px;
 
+    box-shadow:
+        0 20px 70px rgba(0,0,0,0.45),
+        inset 0 1px 0 rgba(255,255,255,0.08);
+
+    backdrop-filter:
+        blur(25px)
+        saturate(160%);
+
+    -webkit-backdrop-filter:
+        blur(25px)
+        saturate(160%);
 }
 
 
@@ -182,19 +174,10 @@ h3 {
    ===================================================== */
 
 .subtitle {
-
-    color:
-        rgba(235,240,255,0.62);
-
-    font-size:
-        1rem;
-
-    margin-top:
-        -18px;
-
-    margin-bottom:
-        10px;
-
+    color: rgba(235,240,255,0.62);
+    font-size: 1rem;
+    margin-top: -20px;
+    margin-bottom: 25px;
 }
 
 
@@ -203,46 +186,31 @@ h3 {
    ===================================================== */
 
 div[data-baseweb="input"] {
-
     background:
-        rgba(255,255,255,0.065) !important;
+        rgba(255,255,255,0.06) !important;
 
     border:
-        1px solid
-        rgba(255,255,255,0.13) !important;
+        1px solid rgba(255,255,255,0.12) !important;
 
     border-radius:
         18px !important;
 
     transition:
         all 0.25s ease;
-
 }
-
 
 div[data-baseweb="input"]:focus-within {
-
     border-color:
-        rgba(110,140,255,0.90) !important;
+        rgba(110,135,255,0.9) !important;
 
     box-shadow:
-        0 0 0 3px
-        rgba(100,125,255,0.13),
-
-        0 0 35px
-        rgba(80,100,255,0.20);
-
+        0 0 0 3px rgba(90,110,255,0.13),
+        0 0 35px rgba(80,100,255,0.18);
 }
 
-
 input {
-
-    color:
-        #ffffff !important;
-
-    font-size:
-        1.05rem !important;
-
+    color: #ffffff !important;
+    font-size: 1.05rem !important;
 }
 
 
@@ -251,47 +219,35 @@ input {
    ===================================================== */
 
 .stButton > button {
+    min-height: 52px;
 
-    border-radius:
-        18px !important;
+    border-radius: 18px !important;
 
     border:
-        1px solid
-        rgba(255,255,255,0.15) !important;
+        1px solid rgba(255,255,255,0.14) !important;
 
     background:
         linear-gradient(
             135deg,
-            rgba(255,255,255,0.13),
+            rgba(255,255,255,0.12),
             rgba(255,255,255,0.045)
         ) !important;
 
-    color:
-        #ffffff !important;
+    color: #ffffff !important;
 
-    font-weight:
-        700 !important;
+    font-weight: 700 !important;
 
-    min-height:
-        52px;
+    box-shadow:
+        0 10px 30px rgba(0,0,0,0.25),
+        inset 0 1px 0 rgba(255,255,255,0.10);
 
     transition:
         transform 0.18s ease,
         box-shadow 0.18s ease,
         background 0.18s ease;
-
-    box-shadow:
-        0 10px 30px
-        rgba(0,0,0,0.25),
-
-        inset 0 1px 0
-        rgba(255,255,255,0.10);
-
 }
 
-
 .stButton > button:hover {
-
     transform:
         translateY(-3px)
         scale(1.015);
@@ -299,65 +255,17 @@ input {
     background:
         linear-gradient(
             135deg,
-            rgba(90,125,255,0.35),
-            rgba(145,70,255,0.24)
+            rgba(100,125,255,0.35),
+            rgba(150,75,255,0.25)
         ) !important;
 
     box-shadow:
-        0 15px 40px
-        rgba(70,95,255,0.30),
-
-        0 0 30px
-        rgba(100,80,255,0.20);
-
+        0 14px 40px rgba(70,90,255,0.30),
+        0 0 28px rgba(100,120,255,0.20);
 }
-
 
 .stButton > button:active {
-
-    transform:
-        translateY(1px)
-        scale(0.97);
-
-}
-
-
-/* =====================================================
-   PRIMARY BUTTON
-   ===================================================== */
-
-button[kind="primary"] {
-
-    background:
-        linear-gradient(
-            135deg,
-            #526dff,
-            #793cff
-        ) !important;
-
-    border:
-        1px solid
-        rgba(150,170,255,0.55) !important;
-
-    box-shadow:
-        0 10px 35px
-        rgba(75,90,255,0.35),
-
-        0 0 25px
-        rgba(110,80,255,0.20);
-
-}
-
-
-button[kind="primary"]:hover {
-
-    background:
-        linear-gradient(
-            135deg,
-            #637cff,
-            #8a50ff
-        ) !important;
-
+    transform: scale(0.96);
 }
 
 
@@ -366,7 +274,6 @@ button[kind="primary"]:hover {
    ===================================================== */
 
 div[data-testid="stMetric"] {
-
     background:
         linear-gradient(
             135deg,
@@ -375,62 +282,29 @@ div[data-testid="stMetric"] {
         );
 
     border:
-        1px solid
-        rgba(255,255,255,0.10);
+        1px solid rgba(255,255,255,0.10);
 
-    border-radius:
-        22px;
+    border-radius: 22px;
 
-    padding:
-        18px;
+    padding: 18px;
 
     box-shadow:
-        0 15px 40px
-        rgba(0,0,0,0.25);
+        0 15px 40px rgba(0,0,0,0.25);
 
     backdrop-filter:
         blur(20px);
-
 }
-
 
 div[data-testid="stMetricValue"] {
-
-    color:
-        #ffffff !important;
-
+    color: #ffffff !important;
 }
 
 
 /* =====================================================
-   DATAFRAME
-   ===================================================== */
-
-div[data-testid="stDataFrame"] {
-
-    border-radius:
-        22px;
-
-    overflow:
-        hidden;
-
-    border:
-        1px solid
-        rgba(255,255,255,0.10);
-
-    box-shadow:
-        0 20px 60px
-        rgba(0,0,0,0.30);
-
-}
-
-
-/* =====================================================
-   LIVE DOT
+   STATUS
    ===================================================== */
 
 .live-dot {
-
     display: inline-block;
 
     width: 10px;
@@ -438,27 +312,21 @@ div[data-testid="stDataFrame"] {
 
     border-radius: 50%;
 
-    background:
-        #36ff8a;
+    background: #39ff88;
 
     box-shadow:
-        0 0 8px #36ff8a,
-        0 0 20px #36ff8a;
+        0 0 8px #39ff88,
+        0 0 22px #39ff88;
 
-    animation:
-        pulse 1.3s infinite;
+    animation: pulse 1.3s infinite;
 
-    margin-right:
-        8px;
-
+    margin-right: 8px;
 }
 
-
 @keyframes pulse {
-
     0% {
-        transform: scale(0.85);
-        opacity: 0.55;
+        transform: scale(.8);
+        opacity: .55;
     }
 
     50% {
@@ -467,91 +335,70 @@ div[data-testid="stDataFrame"] {
     }
 
     100% {
-        transform: scale(0.85);
-        opacity: 0.55;
+        transform: scale(.8);
+        opacity: .55;
     }
-
 }
 
 
 /* =====================================================
-   STATUS BADGES
+   RESULT BADGES
    ===================================================== */
 
-.badge {
-
-    display: inline-block;
-
-    padding:
-        8px 15px;
-
-    margin:
-        4px 5px 4px 0;
-
-    border-radius:
-        999px;
-
-    font-weight:
-        700;
-
-    font-size:
-        0.90rem;
-
-    border:
-        1px solid
-        rgba(255,255,255,0.12);
-
-    backdrop-filter:
-        blur(10px);
-
+.badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 18px 0;
 }
 
+.badge {
+    padding: 9px 15px;
+
+    border-radius: 999px;
+
+    font-weight: 700;
+
+    border: 1px solid rgba(255,255,255,0.10);
+
+    backdrop-filter: blur(15px);
+}
 
 .badge-active {
-
-    color:
-        #52ff9a;
-
-    background:
-        rgba(40,255,130,0.08);
-
-    box-shadow:
-        0 0 18px
-        rgba(40,255,130,0.10);
-
+    color: #39ff88;
+    background: rgba(30,255,130,0.08);
+    box-shadow: 0 0 18px rgba(30,255,130,0.08);
 }
-
 
 .badge-inactive {
-
-    color:
-        #ff6078;
-
-    background:
-        rgba(255,50,80,0.08);
-
+    color: #ff5870;
+    background: rgba(255,60,90,0.08);
 }
-
 
 .badge-carrier {
+    color: #62a8ff;
+    background: rgba(70,130,255,0.09);
+}
 
-    color:
-        #65a7ff;
-
-    background:
-        rgba(70,130,255,0.09);
-
+.badge-broker {
+    color: #c084fc;
+    background: rgba(170,80,255,0.09);
 }
 
 
-.badge-broker {
+/* =====================================================
+   DATAFRAME
+   ===================================================== */
 
-    color:
-        #ca8cff;
+div[data-testid="stDataFrame"] {
+    border-radius: 22px;
+    overflow: hidden;
 
-    background:
-        rgba(170,70,255,0.09);
+    border:
+        1px solid rgba(255,255,255,0.10);
 
+    box-shadow:
+        0 20px 60px rgba(0,0,0,0.30);
 }
 
 
@@ -560,7 +407,6 @@ div[data-testid="stDataFrame"] {
    ===================================================== */
 
 .black-hole {
-
     position: fixed;
 
     left: 50%;
@@ -572,92 +418,64 @@ div[data-testid="stDataFrame"] {
     width: 220px;
     height: 220px;
 
-    border-radius:
-        50%;
+    border-radius: 50%;
 
-    z-index:
-        999999;
+    z-index: 999999;
 
     background:
         radial-gradient(
             circle,
             #000 0%,
             #000 25%,
-            #19002e 30%,
-            #6d1cff 42%,
-            #ff4fd8 49%,
-            #171020 59%,
+            #17002c 31%,
+            #7020ff 43%,
+            #ff42d0 49%,
+            #161020 58%,
             transparent 72%
         );
 
     box-shadow:
-        0 0 35px
-        #7a2cff,
-
-        0 0 100px
-        #5a1cff,
-
-        0 0 180px
-        rgba(255,40,210,0.35);
+        0 0 35px #7a2cff,
+        0 0 100px #5a1cff,
+        0 0 180px rgba(255,40,210,0.35);
 
     animation:
         blackHole
         1.25s
         cubic-bezier(.6,0,.1,1)
         forwards;
-
 }
-
 
 @keyframes blackHole {
 
     0% {
-
-        width: 20px;
-        height: 20px;
-
+        width: 15px;
+        height: 15px;
         opacity: 0;
-
-        transform:
-            translate(-50%, -50%)
-            rotate(0deg);
-
     }
 
     25% {
-
         width: 260px;
         height: 260px;
-
         opacity: 1;
-
     }
 
-    65% {
-
-        width: 340px;
-        height: 340px;
-
+    60% {
+        width: 330px;
+        height: 330px;
         opacity: 1;
-
-        filter:
-            brightness(1.45);
-
+        filter: brightness(1.4);
     }
 
     100% {
-
         width: 0;
         height: 0;
-
         opacity: 0;
 
         transform:
             translate(-50%, -50%)
             rotate(540deg);
-
     }
-
 }
 
 
@@ -668,46 +486,19 @@ div[data-testid="stDataFrame"] {
 @media (max-width: 768px) {
 
     h1 {
-
-        font-size:
-            2.2rem !important;
-
+        font-size: 2.2rem !important;
     }
 
     .block-container {
-
-        padding-left:
-            1rem;
-
-        padding-right:
-            1rem;
-
+        padding-left: 1rem;
+        padding-right: 1rem;
     }
-
 }
 
 </style>
 """,
     unsafe_allow_html=True,
 )
-
-
-# =========================================================
-# BLACK HOLE ANIMATION
-# =========================================================
-
-if st.session_state.show_black_hole:
-
-    st.markdown(
-        '<div class="black-hole"></div>',
-        unsafe_allow_html=True,
-    )
-
-    time.sleep(1.0)
-
-    st.session_state.show_black_hole = False
-
-    st.rerun()
 
 
 # =========================================================
@@ -742,20 +533,14 @@ st.markdown(
 st.markdown("### 🎯 Search Control")
 
 
-# =========================================================
-# CURRENT MC DISPLAY
+# ---------------------------------------------------------
 # IMPORTANT:
-# Set widget state BEFORE creating text_input.
-# Never modify it after text_input has been created.
-# =========================================================
+# We do NOT modify the text_input's session-state key.
+#
+# Instead we calculate its value BEFORE creating the widget.
+# ---------------------------------------------------------
 
 if st.session_state.running:
-
-    display_mc = str(
-        st.session_state.current_mc
-    )
-
-elif st.session_state.current_mc is not None:
 
     display_mc = str(
         st.session_state.current_mc
@@ -772,16 +557,9 @@ else:
     display_mc = ""
 
 
-# Keep widget synchronized safely.
-# This happens BEFORE st.text_input is created.
-
-if st.session_state.mc_input != display_mc:
-
-    st.session_state.mc_input = display_mc
-
-
 start_input = st.text_input(
     "Current MC Number",
+    value=display_mc,
     placeholder="Example: 1800000",
     disabled=st.session_state.running,
     key="mc_input",
@@ -798,7 +576,9 @@ st.caption(
 # BUTTONS
 # =========================================================
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3 = st.columns(
+    [1, 1, 1]
+)
 
 
 with col1:
@@ -840,19 +620,24 @@ st.markdown(
 
 if clear_button:
 
-    st.session_state.show_black_hole = True
+    st.markdown(
+        '<div class="black-hole"></div>',
+        unsafe_allow_html=True,
+    )
+
+    time.sleep(1.0)
 
     st.session_state.results = []
-
     st.session_state.searched_count = 0
-
     st.session_state.running = False
-
     st.session_state.current_mc = None
-
     st.session_state.start_mc = ""
 
-    st.session_state.mc_input = ""
+    # IMPORTANT:
+    # Do not touch st.session_state.mc_input here.
+    #
+    # The widget will naturally receive the empty
+    # start_mc value on the next rerun.
 
     st.rerun()
 
@@ -860,29 +645,20 @@ if clear_button:
 # =========================================================
 # STOP
 # =========================================================
-#
-# IMPORTANT FIX:
-#
-# DO NOT set current_mc = None.
-#
-# Instead, preserve the MC currently being searched and
-# make it the new starting MC.
-#
-# =========================================================
 
 if stop_button:
 
-    if st.session_state.current_mc is not None:
-
-        st.session_state.start_mc = str(
-            st.session_state.current_mc
-        )
-
-        st.session_state.mc_input = str(
-            st.session_state.current_mc
-        )
+    # -----------------------------------------------------
+    # IMPORTANT FIX
+    #
+    # Do NOT put current_mc back into start_mc.
+    #
+    # This means after STOP the starting field keeps the
+    # ORIGINAL MC that the user entered.
+    # -----------------------------------------------------
 
     st.session_state.running = False
+    st.session_state.current_mc = None
 
     st.rerun()
 
@@ -893,12 +669,8 @@ if stop_button:
 
 if start_button:
 
-    cleaned = (
+    cleaned = clean_mc(
         start_input
-        .strip()
-        .replace("MC", "")
-        .replace("mc", "")
-        .strip()
     )
 
     if not cleaned.isdigit():
@@ -910,13 +682,23 @@ if start_button:
         st.stop()
 
 
+    # -----------------------------------------------------
+    # Save the ORIGINAL starting MC.
+    # -----------------------------------------------------
+
     st.session_state.start_mc = cleaned
+
+    # -----------------------------------------------------
+    # Search begins from this MC.
+    # -----------------------------------------------------
 
     st.session_state.current_mc = int(
         cleaned
     )
 
-    st.session_state.mc_input = cleaned
+    # -----------------------------------------------------
+    # New search = new result set.
+    # -----------------------------------------------------
 
     st.session_state.results = []
 
@@ -988,18 +770,16 @@ if st.session_state.running:
         st.session_state.current_mc
     )
 
-
     # -----------------------------------------------------
-    # Search current MC
+    # Search exactly ONE MC.
     # -----------------------------------------------------
 
     result = search_one(
         str(current_mc)
     )
 
-
     # -----------------------------------------------------
-    # Store result
+    # Store result.
     # -----------------------------------------------------
 
     st.session_state.results.append(
@@ -1008,34 +788,24 @@ if st.session_state.running:
 
     st.session_state.searched_count += 1
 
-
     # -----------------------------------------------------
-    # Move to NEXT MC
+    # Move to NEXT MC.
+    #
+    # This does NOT change start_mc.
     # -----------------------------------------------------
 
     st.session_state.current_mc = (
         current_mc + 1
     )
 
-
     # -----------------------------------------------------
-    # Keep input synchronized for the next run
-    # -----------------------------------------------------
-
-    st.session_state.mc_input = str(
-        current_mc + 1
-    )
-
-
-    # -----------------------------------------------------
-    # Small delay
+    # Small delay.
     # -----------------------------------------------------
 
     time.sleep(0.5)
 
-
     # -----------------------------------------------------
-    # RERUN
+    # Rerun.
     # -----------------------------------------------------
 
     st.rerun()
@@ -1057,12 +827,7 @@ if st.session_state.results:
     )
 
 
-    # =====================================================
-    # BUILD DATAFRAME
-    # =====================================================
-
     rows = []
-
     errors = []
 
 
@@ -1136,31 +901,14 @@ if st.session_state.results:
 
 
     # =====================================================
-    # NORMALIZE STATUS / TYPE
-    # =====================================================
-
-    df["Operating Status"] = (
-        df["Operating Status"]
-        .astype(str)
-        .str.upper()
-        .str.strip()
-    )
-
-    df["Broker/Carrier"] = (
-        df["Broker/Carrier"]
-        .astype(str)
-        .str.upper()
-        .str.strip()
-    )
-
-
-    # =====================================================
-    # COUNTS
+    # METRICS
     # =====================================================
 
     active_count = int(
         (
             df["Operating Status"]
+            .astype(str)
+            .str.upper()
             == "ACTIVE"
         ).sum()
     )
@@ -1169,15 +917,9 @@ if st.session_state.results:
     inactive_count = int(
         (
             df["Operating Status"]
+            .astype(str)
+            .str.upper()
             == "INACTIVE"
-        ).sum()
-    )
-
-
-    carrier_count = int(
-        (
-            df["Broker/Carrier"]
-            == "CARRIER"
         ).sum()
     )
 
@@ -1185,7 +927,19 @@ if st.session_state.results:
     broker_count = int(
         (
             df["Broker/Carrier"]
+            .astype(str)
+            .str.upper()
             == "BROKER"
+        ).sum()
+    )
+
+
+    carrier_count = int(
+        (
+            df["Broker/Carrier"]
+            .astype(str)
+            .str.upper()
+            == "CARRIER"
         ).sum()
     )
 
@@ -1196,6 +950,8 @@ if st.session_state.results:
 
     st.markdown(
         f"""
+<div class="badges">
+
 <span class="badge badge-active">
 ● Active {active_count}
 </span>
@@ -1211,95 +967,15 @@ if st.session_state.results:
 <span class="badge badge-broker">
 ◆ Brokers {broker_count}
 </span>
+
+</div>
 """,
         unsafe_allow_html=True,
     )
 
 
     # =====================================================
-    # FILTERS
-    # =====================================================
-
-    st.markdown("### 🔎 Filters")
-
-
-    filter_col1, filter_col2 = st.columns(2)
-
-
-    with filter_col1:
-
-        status_filter = st.multiselect(
-            "Operating Status",
-            options=[
-                "ACTIVE",
-                "INACTIVE",
-            ],
-            default=[
-                "ACTIVE",
-                "INACTIVE",
-            ],
-        )
-
-
-    with filter_col2:
-
-        type_filter = st.multiselect(
-            "Broker / Carrier",
-            options=[
-                "CARRIER",
-                "BROKER",
-            ],
-            default=[
-                "CARRIER",
-                "BROKER",
-            ],
-        )
-
-
-    # =====================================================
-    # APPLY FILTERS
-    # =====================================================
-
-    filtered_df = df.copy()
-
-
-    if status_filter:
-
-        filtered_df = filtered_df[
-            filtered_df[
-                "Operating Status"
-            ].isin(status_filter)
-        ]
-
-    else:
-
-        filtered_df = filtered_df.iloc[0:0]
-
-
-    if type_filter:
-
-        filtered_df = filtered_df[
-            filtered_df[
-                "Broker/Carrier"
-            ].isin(type_filter)
-        ]
-
-    else:
-
-        filtered_df = filtered_df.iloc[0:0]
-
-
-    # =====================================================
-    # FILTERED COUNT
-    # =====================================================
-
-    st.caption(
-        f"Showing {len(filtered_df):,} matching MC records."
-    )
-
-
-    # =====================================================
-    # TABLE COLORS
+    # COLOR FUNCTIONS
     # =====================================================
 
     def color_status(value):
@@ -1316,7 +992,7 @@ if st.session_state.results:
         if value == "INACTIVE":
 
             return (
-                "color:#ff4d67;"
+                "color:#ff526b;"
                 "font-weight:800;"
             )
 
@@ -1345,7 +1021,7 @@ if st.session_state.results:
 
 
     styled_df = (
-        filtered_df.style
+        df.style
         .map(
             color_status,
             subset=[
@@ -1383,32 +1059,33 @@ if st.session_state.results:
         unsafe_allow_html=True,
     )
 
-
     st.markdown(
-        "### ⬇ Export Filtered Data"
+        "### ⬇ Export"
     )
 
 
-    download_col1, download_col2 = st.columns(2)
+    download_col1, download_col2 = st.columns(
+        2
+    )
 
 
     # =====================================================
     # CSV
     # =====================================================
 
-    csv_data = filtered_df.to_csv(
-        index=False
-    ).encode(
-        "utf-8"
+    csv_data = (
+        df
+        .to_csv(index=False)
+        .encode("utf-8")
     )
 
 
     with download_col1:
 
         st.download_button(
-            "⬇ Download Filtered CSV",
+            "Download CSV",
             data=csv_data,
-            file_name="mc_filtered_results.csv",
+            file_name="mc_results.csv",
             mime="text/csv",
             use_container_width=True,
         )
@@ -1426,7 +1103,7 @@ if st.session_state.results:
         engine="openpyxl",
     ) as writer:
 
-        filtered_df.to_excel(
+        df.to_excel(
             writer,
             index=False,
             sheet_name="MC Results",
@@ -1436,9 +1113,9 @@ if st.session_state.results:
     with download_col2:
 
         st.download_button(
-            "⬇ Download Filtered Excel",
+            "Download Excel",
             data=excel_buffer.getvalue(),
-            file_name="mc_filtered_results.xlsx",
+            file_name="mc_results.xlsx",
             mime=(
                 "application/vnd.openxmlformats-officedocument."
                 "spreadsheetml.sheet"
