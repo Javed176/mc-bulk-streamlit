@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from src.search import search_one
+from src.auth import require_login
 
 
 # =========================================================
@@ -20,25 +21,40 @@ st.set_page_config(
 
 
 # =========================================================
+# SECURITY
+# =========================================================
+
+require_login()
+
+
+# =========================================================
 # SESSION STATE
 # =========================================================
 
-defaults = {
-    "running": False,
-    "current_mc": None,
-    "results": [],
-    "searched_count": 0,
-    "last_searched_mc": None,
-    "clear_animation": False,
-}
+if "running" not in st.session_state:
+    st.session_state.running = False
 
-for key, value in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
+if "current_mc" not in st.session_state:
+    st.session_state.current_mc = None
+
+if "results" not in st.session_state:
+    st.session_state.results = []
+
+if "start_mc" not in st.session_state:
+    st.session_state.start_mc = ""
+
+if "searched_count" not in st.session_state:
+    st.session_state.searched_count = 0
+
+if "clearing" not in st.session_state:
+    st.session_state.clearing = False
+
+if "mc_input_value" not in st.session_state:
+    st.session_state.mc_input_value = ""
 
 
 # =========================================================
-# CSS
+# MODERN IOS / GLASS UI
 # =========================================================
 
 st.markdown(
@@ -46,38 +62,44 @@ st.markdown(
 <style>
 
 /* =====================================================
-   BACKGROUND
+   GLOBAL
    ===================================================== */
 
 .stApp {
+
     background:
         radial-gradient(
-            circle at 12% 5%,
-            rgba(75, 110, 255, 0.20),
-            transparent 28%
+            circle at 15% 10%,
+            rgba(80, 110, 255, 0.18),
+            transparent 30%
         ),
         radial-gradient(
-            circle at 88% 8%,
-            rgba(170, 70, 255, 0.18),
+            circle at 85% 15%,
+            rgba(170, 80, 255, 0.16),
             transparent 30%
         ),
         linear-gradient(
             135deg,
-            #04050a 0%,
-            #0a0d16 50%,
-            #05060b 100%
+            #05060a 0%,
+            #0b0d14 45%,
+            #05060a 100%
         );
+
+    color: #f5f7ff;
 }
 
 
 /* =====================================================
-   MAIN WIDTH
+   MAIN
    ===================================================== */
 
 .block-container {
+
     max-width: 1450px;
-    padding-top: 2rem;
-    padding-bottom: 5rem;
+
+    padding-top: 2.5rem;
+    padding-bottom: 4rem;
+
 }
 
 
@@ -86,35 +108,91 @@ st.markdown(
    ===================================================== */
 
 h1 {
+
     font-size: 3rem !important;
-    font-weight: 800 !important;
-    letter-spacing: -0.055em !important;
+
+    font-weight: 750 !important;
+
+    letter-spacing: -0.05em;
 
     background:
         linear-gradient(
             90deg,
             #ffffff,
-            #b9c8ff,
+            #b9c5ff,
             #ffffff
         );
 
     -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
 
+    -webkit-text-fill-color: transparent;
+
+}
 
 h2,
 h3 {
+
     color: #f5f7ff !important;
+
 }
 
 
 /* =====================================================
-   CAPTIONS
+   GLASS CARD
    ===================================================== */
 
-.stCaption {
-    color: #8d98b5 !important;
+.glass-card {
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(255,255,255,0.105),
+            rgba(255,255,255,0.035)
+        );
+
+    border:
+        1px solid
+        rgba(255,255,255,0.12);
+
+    box-shadow:
+        0 20px 70px
+        rgba(0,0,0,0.45),
+
+        inset 0 1px 0
+        rgba(255,255,255,0.08);
+
+    backdrop-filter:
+        blur(25px)
+        saturate(160%);
+
+    -webkit-backdrop-filter:
+        blur(25px)
+        saturate(160%);
+
+    border-radius: 28px;
+
+    padding: 26px;
+
+    margin-bottom: 20px;
+
+}
+
+
+/* =====================================================
+   SUBTITLE
+   ===================================================== */
+
+.subtitle {
+
+    color:
+        rgba(235,240,255,0.62);
+
+    font-size: 1rem;
+
+    margin-top: -20px;
+
+    margin-bottom: 28px;
+
 }
 
 
@@ -123,50 +201,44 @@ h3 {
    ===================================================== */
 
 div[data-baseweb="input"] {
+
     background:
-        rgba(255,255,255,0.055) !important;
+        rgba(255,255,255,0.065) !important;
 
     border:
-        1px solid rgba(255,255,255,0.12) !important;
+        1px solid
+        rgba(255,255,255,0.12) !important;
 
     border-radius:
         18px !important;
 
     transition:
-        all 0.25s ease !important;
-}
+        all 0.25s ease;
 
+}
 
 div[data-baseweb="input"]:focus-within {
+
     border-color:
-        rgba(115,140,255,0.9) !important;
+        rgba(120,145,255,0.85) !important;
 
     box-shadow:
-        0 0 0 3px rgba(90,120,255,0.13),
-        0 0 35px rgba(80,100,255,0.15) !important;
-}
+        0 0 0 3px
+        rgba(100,125,255,0.12),
 
+        0 0 30px
+        rgba(80,100,255,0.15);
+
+}
 
 input {
-    color: #ffffff !important;
-}
 
+    color:
+        #ffffff !important;
 
-/* =====================================================
-   SELECTBOX
-   ===================================================== */
+    font-size:
+        1.05rem !important;
 
-div[data-baseweb="select"] > div {
-    background:
-        rgba(255,255,255,0.055) !important;
-
-    border:
-        1px solid rgba(255,255,255,0.12) !important;
-
-    border-radius:
-        16px !important;
-
-    color: white !important;
 }
 
 
@@ -174,39 +246,46 @@ div[data-baseweb="select"] > div {
    BUTTONS
    ===================================================== */
 
-.stButton > button,
-.stDownloadButton > button {
+.stButton > button {
 
-    min-height: 50px;
-
-    border-radius: 18px !important;
+    border-radius:
+        18px !important;
 
     border:
-        1px solid rgba(255,255,255,0.14) !important;
+        1px solid
+        rgba(255,255,255,0.14) !important;
 
     background:
         linear-gradient(
             135deg,
             rgba(255,255,255,0.12),
-            rgba(255,255,255,0.035)
+            rgba(255,255,255,0.045)
         ) !important;
 
-    color: #ffffff !important;
+    color:
+        #ffffff !important;
 
-    font-weight: 700 !important;
+    font-weight:
+        650 !important;
 
-    box-shadow:
-        0 10px 30px rgba(0,0,0,0.25),
-        inset 0 1px 0 rgba(255,255,255,0.10);
+    min-height:
+        50px;
 
     transition:
-        transform 0.20s ease,
-        box-shadow 0.20s ease !important;
+        transform 0.2s ease,
+        box-shadow 0.2s ease,
+        background 0.2s ease;
+
+    box-shadow:
+        0 10px 30px
+        rgba(0,0,0,0.25),
+
+        inset 0 1px 0
+        rgba(255,255,255,0.10);
+
 }
 
-
-.stButton > button:hover,
-.stDownloadButton > button:hover {
+.stButton > button:hover {
 
     transform:
         translateY(-2px)
@@ -215,20 +294,24 @@ div[data-baseweb="select"] > div {
     background:
         linear-gradient(
             135deg,
-            rgba(100,125,255,0.30),
-            rgba(145,70,255,0.22)
+            rgba(105,130,255,0.30),
+            rgba(130,80,255,0.20)
         ) !important;
 
     box-shadow:
-        0 15px 40px rgba(70,90,255,0.28),
-        0 0 28px rgba(90,110,255,0.18);
+        0 12px 35px
+        rgba(75,95,255,0.28),
+
+        0 0 25px
+        rgba(90,110,255,0.18);
+
 }
 
+.stButton > button:active {
 
-.stButton > button:active,
-.stDownloadButton > button:active {
+    transform:
+        scale(0.97);
 
-    transform: scale(0.97);
 }
 
 
@@ -242,11 +325,12 @@ div[data-testid="stMetric"] {
         linear-gradient(
             135deg,
             rgba(255,255,255,0.09),
-            rgba(255,255,255,0.025)
+            rgba(255,255,255,0.035)
         );
 
     border:
-        1px solid rgba(255,255,255,0.09);
+        1px solid
+        rgba(255,255,255,0.10);
 
     border-radius:
         22px;
@@ -255,21 +339,19 @@ div[data-testid="stMetric"] {
         18px;
 
     box-shadow:
-        0 15px 40px rgba(0,0,0,0.25);
-}
+        0 15px 40px
+        rgba(0,0,0,0.25);
 
+    backdrop-filter:
+        blur(20px);
+
+}
 
 div[data-testid="stMetricValue"] {
-    color: #ffffff !important;
-}
 
+    color:
+        #ffffff !important;
 
-/* =====================================================
-   SUCCESS MESSAGE
-   ===================================================== */
-
-div[data-testid="stAlert"] {
-    border-radius: 18px !important;
 }
 
 
@@ -286,36 +368,337 @@ div[data-testid="stDataFrame"] {
         hidden;
 
     border:
-        1px solid rgba(255,255,255,0.10);
+        1px solid
+        rgba(255,255,255,0.10);
 
     box-shadow:
-        0 20px 60px rgba(0,0,0,0.30);
+        0 20px 60px
+        rgba(0,0,0,0.30);
+
 }
 
 
 /* =====================================================
-   SEARCHING ANIMATION
+   CURRENT MC
    ===================================================== */
 
-.searching-dot {
-    animation:
-        searchPulse 1.2s infinite;
+.current-mc-label {
+
+    color:
+        #9da6c0;
+
+    font-size:
+        0.85rem;
+
+    text-transform:
+        uppercase;
+
+    letter-spacing:
+        0.12em;
+
+    font-weight:
+        700;
+
+    margin-top:
+        22px;
+
+}
+
+.current-mc-number {
+
+    font-size:
+        2.8rem;
+
+    font-weight:
+        800;
+
+    letter-spacing:
+        -0.04em;
+
+    color:
+        #ffffff;
+
+    text-shadow:
+        0 0 30px
+        rgba(110,130,255,0.25);
+
+}
+
+.current-mc-hint {
+
+    color:
+        #78829c;
+
+    font-size:
+        0.85rem;
+
+    margin-top:
+        4px;
+
 }
 
 
-@keyframes searchPulse {
+/* =====================================================
+   LIVE DOT
+   ===================================================== */
+
+.live-dot {
+
+    display:
+        inline-block;
+
+    width:
+        10px;
+
+    height:
+        10px;
+
+    border-radius:
+        50%;
+
+    background:
+        #36ff8a;
+
+    box-shadow:
+        0 0 8px #36ff8a,
+        0 0 20px #36ff8a;
+
+    animation:
+        pulse 1.4s infinite;
+
+    margin-right:
+        8px;
+
+}
+
+@keyframes pulse {
 
     0% {
-        opacity: 0.45;
+        transform: scale(0.85);
+        opacity: 0.6;
     }
 
     50% {
+        transform: scale(1.2);
         opacity: 1;
     }
 
     100% {
-        opacity: 0.45;
+        transform: scale(0.85);
+        opacity: 0.6;
     }
+
+}
+
+
+/* =====================================================
+   BADGES
+   ===================================================== */
+
+.badge {
+
+    display:
+        inline-block;
+
+    padding:
+        8px 14px;
+
+    margin:
+        4px 6px 12px 0;
+
+    border-radius:
+        999px;
+
+    font-weight:
+        700;
+
+    font-size:
+        0.88rem;
+
+    border:
+        1px solid
+        rgba(255,255,255,0.12);
+
+    background:
+        rgba(255,255,255,0.055);
+
+    box-shadow:
+        inset 0 1px 0
+        rgba(255,255,255,0.06);
+
+}
+
+.badge-active {
+
+    color:
+        #72ffae;
+
+    box-shadow:
+        0 0 20px
+        rgba(54,255,138,0.08);
+
+}
+
+.badge-inactive {
+
+    color:
+        #ff7184;
+
+}
+
+.badge-carrier {
+
+    color:
+        #60a5fa;
+
+}
+
+.badge-broker {
+
+    color:
+        #c084fc;
+
+}
+
+
+/* =====================================================
+   FILTER BOX
+   ===================================================== */
+
+.filter-card {
+
+    background:
+        rgba(255,255,255,0.045);
+
+    border:
+        1px solid
+        rgba(255,255,255,0.08);
+
+    border-radius:
+        20px;
+
+    padding:
+        18px;
+
+    margin-top:
+        18px;
+
+    margin-bottom:
+        18px;
+
+}
+
+
+/* =====================================================
+   BLACK HOLE
+   ===================================================== */
+
+.black-hole {
+
+    position:
+        fixed;
+
+    left:
+        50%;
+
+    top:
+        50%;
+
+    transform:
+        translate(-50%, -50%);
+
+    width:
+        220px;
+
+    height:
+        220px;
+
+    border-radius:
+        50%;
+
+    z-index:
+        999999;
+
+    background:
+
+        radial-gradient(
+            circle,
+            #000 0%,
+            #000 27%,
+            #17002c 30%,
+            #6d1cff 43%,
+            #ff4fd8 48%,
+            #151020 58%,
+            transparent 70%
+        );
+
+    box-shadow:
+
+        0 0 35px
+        #7a2cff,
+
+        0 0 100px
+        #5a1cff,
+
+        0 0 180px
+        rgba(255,40,210,0.35);
+
+    animation:
+        blackHole 1.35s
+        cubic-bezier(.6,0,.1,1)
+        forwards;
+
+}
+
+@keyframes blackHole {
+
+    0% {
+
+        width: 20px;
+        height: 20px;
+
+        opacity: 0;
+
+        transform:
+            translate(-50%, -50%)
+            rotate(0deg);
+
+    }
+
+    25% {
+
+        width: 260px;
+        height: 260px;
+
+        opacity: 1;
+
+    }
+
+    65% {
+
+        width: 330px;
+        height: 330px;
+
+        opacity: 1;
+
+        filter:
+            brightness(1.4);
+
+    }
+
+    100% {
+
+        width: 0;
+        height: 0;
+
+        opacity: 0;
+
+        transform:
+            translate(-50%, -50%)
+            rotate(540deg);
+
+    }
+
 }
 
 
@@ -326,13 +709,29 @@ div[data-testid="stDataFrame"] {
 @media (max-width: 768px) {
 
     h1 {
-        font-size: 2.2rem !important;
+
+        font-size:
+            2.2rem !important;
+
     }
 
     .block-container {
-        padding-left: 1rem;
-        padding-right: 1rem;
+
+        padding-left:
+            1rem;
+
+        padding-right:
+            1rem;
+
     }
+
+    .current-mc-number {
+
+        font-size:
+            2.2rem;
+
+    }
+
 }
 
 </style>
@@ -342,133 +741,56 @@ div[data-testid="stDataFrame"] {
 
 
 # =========================================================
-# HELPERS
+# HEADER
 # =========================================================
 
-def clean_mc(value):
-    value = str(value or "").strip()
+st.markdown(
+    """
+<div class="glass-card">
 
-    value = (
-        value
-        .replace("MC", "")
-        .replace("mc", "")
-        .strip()
-    )
+<div class="hero-title">
 
-    return value
+    ✦ MC Search
 
+</div>
 
-def existing_mc_numbers():
-    numbers = set()
+<div class="subtitle">
 
-    for result in st.session_state.results:
+    FMCSA intelligence → DotSearch enrichment
 
-        value = clean_mc(
-            result.get(
-                "MC Number",
-                "",
-            )
-        )
+</div>
 
-        if value.isdigit():
-            numbers.add(int(value))
-
-    return numbers
-
-
-def build_dataframe(results):
-
-    rows = []
-
-    for result in results:
-
-        rows.append(
-            {
-                "MC Number": result.get(
-                    "MC Number",
-                    "",
-                ),
-
-                "Owner": result.get(
-                    "Owner",
-                    "Not available",
-                ),
-
-                "Carrier/Broker Name": result.get(
-                    "Carrier/Broker Name",
-                    "Not available",
-                ),
-
-                "Broker/Carrier": result.get(
-                    "Broker/Carrier",
-                    "Not available",
-                ),
-
-                "Operating Status": result.get(
-                    "Operating Status",
-                    "INACTIVE",
-                ),
-
-                "Number": result.get(
-                    "Number",
-                    "Not available",
-                ),
-
-                "Email Address": result.get(
-                    "Email Address",
-                    "Not available",
-                ),
-
-                "Location": result.get(
-                    "Location",
-                    "Not available",
-                ),
-            }
-        )
-
-    return pd.DataFrame(
-        rows,
-        columns=[
-            "MC Number",
-            "Owner",
-            "Carrier/Broker Name",
-            "Broker/Carrier",
-            "Operating Status",
-            "Number",
-            "Email Address",
-            "Location",
-        ],
-    )
-
-
-# =========================================================
-# HERO
-# =========================================================
-
-st.title("✦ MC Search")
-
-st.caption(
-    "FMCSA intelligence → DotSearch enrichment"
+</div>
+""",
+    unsafe_allow_html=True,
 )
 
 
 # =========================================================
-# SEARCH CONTROL
+# CONTROL CARD
 # =========================================================
 
-st.subheader("🎯 Search Control")
+st.markdown(
+    '<div class="glass-card">',
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    "### 🎯 Search Control"
+)
 
 
 # =========================================================
 # START MC
 # =========================================================
 
-start_mc = st.text_input(
+start_input = st.text_input(
     "Start MC",
+    value=st.session_state.start_mc,
     placeholder="Example: 1800000",
     disabled=st.session_state.running,
+    key="start_mc_input",
 )
-
 
 st.caption(
     "Enter the starting MC. The app searches sequentially "
@@ -477,55 +799,61 @@ st.caption(
 
 
 # =========================================================
-# CURRENT MC
+# CURRENT MC DISPLAY
 # =========================================================
-
-st.markdown("#### Current MC Number")
-
-
-if st.session_state.current_mc is None:
-
-    current_value = "—"
-
-else:
-
-    current_value = (
-        f"{int(st.session_state.current_mc):,}"
-    )
-
-
-st.metric(
-    label="",
-    value=current_value,
-)
-
 
 if st.session_state.running:
 
-    st.caption(
-        "🟢 Search running • next MC will update automatically"
+    current_display = (
+        st.session_state.current_mc
+    )
+
+    current_hint = (
+        "Search running • next MC will update automatically"
+    )
+
+elif st.session_state.current_mc is not None:
+
+    current_display = (
+        st.session_state.current_mc
+    )
+
+    current_hint = (
+        "Search stopped • press START to continue"
     )
 
 else:
 
-    if st.session_state.current_mc is not None:
+    current_display = "—"
 
-        st.caption(
-            "Search stopped • press START to begin another search"
-        )
+    current_hint = "Waiting to start"
 
-    else:
 
-        st.caption(
-            "Waiting for search"
-        )
+st.markdown(
+    f"""
+    <div class="current-mc-label">
+        Current MC Number
+    </div>
+
+    <div class="current-mc-number">
+        {current_display:,}
+    </div>
+
+    <div class="current-mc-hint">
+        {current_hint}
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 # =========================================================
 # BUTTONS
 # =========================================================
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3 = st.columns(
+    [1, 1, 1]
+)
 
 
 with col1:
@@ -555,11 +883,26 @@ with col3:
     )
 
 
+st.markdown(
+    "</div>",
+    unsafe_allow_html=True,
+)
+
+
 # =========================================================
 # CLEAR HISTORY
 # =========================================================
 
 if clear_button:
+
+    st.markdown(
+        """
+        <div class="black-hole"></div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    time.sleep(1.0)
 
     st.session_state.results = []
 
@@ -569,13 +912,7 @@ if clear_button:
 
     st.session_state.current_mc = None
 
-    st.session_state.last_searched_mc = None
-
-    st.success(
-        "History cleared."
-    )
-
-    time.sleep(0.4)
+    st.session_state.start_mc = ""
 
     st.rerun()
 
@@ -586,12 +923,11 @@ if clear_button:
 
 if stop_button:
 
-    # IMPORTANT:
-    # current_mc is intentionally NOT reset.
-    #
-    # Results are intentionally NOT reset.
-
     st.session_state.running = False
+
+    # IMPORTANT:
+    # Keep current_mc so the user can see exactly
+    # where the search stopped.
 
     st.rerun()
 
@@ -602,7 +938,13 @@ if stop_button:
 
 if start_button:
 
-    cleaned = clean_mc(start_mc)
+    cleaned = (
+        start_input
+        .strip()
+        .replace("MC", "")
+        .replace("mc", "")
+        .strip()
+    )
 
     if not cleaned.isdigit():
 
@@ -612,26 +954,76 @@ if start_button:
 
         st.stop()
 
+    # Store starting MC.
 
-    starting_mc = int(cleaned)
+    st.session_state.start_mc = cleaned
 
-    used_numbers = existing_mc_numbers()
+    # Start exactly at the MC entered.
 
+    st.session_state.current_mc = int(
+        cleaned
+    )
 
-    # -----------------------------------------------------
-    # Never search the exact same MC twice.
-    # -----------------------------------------------------
-
-    while starting_mc in used_numbers:
-
-        starting_mc += 1
-
-
-    st.session_state.current_mc = starting_mc
+    # IMPORTANT:
+    # Do NOT clear existing results here.
+    #
+    # Results remain until Clear History.
 
     st.session_state.running = True
 
     st.rerun()
+
+
+# =========================================================
+# LIVE STATUS
+# =========================================================
+
+if st.session_state.running:
+
+    st.markdown(
+        """
+        <div class="glass-card">
+
+        <span class="live-dot"></span>
+
+        <b>
+            Searching sequential MC numbers...
+        </b>
+
+        <br>
+
+        <small style="color:#9da6c0;">
+            The current MC updates automatically.
+        </small>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+elif st.session_state.searched_count > 0:
+
+    st.markdown(
+        f"""
+        <div class="glass-card">
+
+        <b style="color:#72ffae;">
+            ✓ Search stopped
+        </b>
+
+        <br>
+
+        <small style="color:#9da6c0;">
+            {st.session_state.searched_count:,}
+            MC number(s) processed.
+            Results are preserved until Clear History.
+        </small>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # =========================================================
@@ -640,31 +1032,20 @@ if start_button:
 
 if st.session_state.running:
 
-    current_mc = int(
+    current_mc = (
         st.session_state.current_mc
     )
 
-
     # -----------------------------------------------------
-    # STATUS
-    # -----------------------------------------------------
-
-    st.info(
-        f"🟢 Searching MC {current_mc:,}..."
-    )
-
-
-    # -----------------------------------------------------
-    # SEARCH
+    # Search current MC
     # -----------------------------------------------------
 
     result = search_one(
         str(current_mc)
     )
 
-
     # -----------------------------------------------------
-    # SAVE RESULT
+    # Store result
     # -----------------------------------------------------
 
     st.session_state.results.append(
@@ -673,38 +1054,32 @@ if st.session_state.running:
 
     st.session_state.searched_count += 1
 
-    st.session_state.last_searched_mc = current_mc
-
-
     # -----------------------------------------------------
-    # NEXT MC
+    # Move to next MC
+    #
+    # Example:
+    #
+    # 1800000
+    # 1800001
+    # 1800002
+    # 1800003
     # -----------------------------------------------------
 
     st.session_state.current_mc = (
         current_mc + 1
     )
 
+    # -----------------------------------------------------
+    # Small delay
+    # -----------------------------------------------------
 
-    time.sleep(0.35)
+    time.sleep(0.5)
+
+    # -----------------------------------------------------
+    # Rerun
+    # -----------------------------------------------------
 
     st.rerun()
-
-
-# =========================================================
-# STOPPED STATUS
-# =========================================================
-
-if (
-    not st.session_state.running
-    and st.session_state.searched_count > 0
-):
-
-    st.success(
-        f"✓ Search stopped — "
-        f"{st.session_state.searched_count:,} "
-        f"MC number(s) processed. "
-        f"Results are preserved until Clear History."
-    )
 
 
 # =========================================================
@@ -713,116 +1088,104 @@ if (
 
 if st.session_state.results:
 
-    st.subheader("📊 Search Results")
+    st.markdown(
+        '<div class="glass-card">',
+        unsafe_allow_html=True,
+    )
 
-
-    df = build_dataframe(
-        st.session_state.results
+    st.markdown(
+        "### 📊 Search Results"
     )
 
 
     # =====================================================
-    # COUNTS
+    # BUILD DATAFRAME
     # =====================================================
 
-    active_count = int(
-        (
-            df["Operating Status"]
-            .astype(str)
-            .str.upper()
-            == "ACTIVE"
-        ).sum()
+    rows = []
+
+    errors = []
+
+    for result in st.session_state.results:
+
+        rows.append(
+            {
+                "MC Number": result.get(
+                    "MC Number",
+                    "",
+                ),
+
+                "Owner": result.get(
+                    "Owner",
+                    "Not available",
+                ),
+
+                "Carrier/Broker Name": result.get(
+                    "Carrier/Broker Name",
+                    "",
+                ),
+
+                "Broker/Carrier": result.get(
+                    "Broker/Carrier",
+                    "",
+                ),
+
+                "Operating Status": result.get(
+                    "Operating Status",
+                    "",
+                ),
+
+                "Number": result.get(
+                    "Number",
+                    "Not available",
+                ),
+
+                "Email Address": result.get(
+                    "Email Address",
+                    "Not available",
+                ),
+
+                "Location": result.get(
+                    "Location",
+                    "Not available",
+                ),
+            }
+        )
+
+        if result.get("_error"):
+
+            errors.append(
+                result["_error"]
+            )
+
+
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "MC Number",
+            "Owner",
+            "Carrier/Broker Name",
+            "Broker/Carrier",
+            "Operating Status",
+            "Number",
+            "Email Address",
+            "Location",
+        ],
     )
-
-
-    inactive_count = int(
-        (
-            df["Operating Status"]
-            .astype(str)
-            .str.upper()
-            == "INACTIVE"
-        ).sum()
-    )
-
-
-    carrier_count = int(
-        (
-            df["Broker/Carrier"]
-            .astype(str)
-            .str.upper()
-            == "CARRIER"
-        ).sum()
-    )
-
-
-    broker_count = int(
-        (
-            df["Broker/Carrier"]
-            .astype(str)
-            .str.upper()
-            == "BROKER"
-        ).sum()
-    )
-
-
-    # =====================================================
-    # METRICS
-    # =====================================================
-
-    m1, m2, m3, m4, m5 = st.columns(5)
-
-
-    with m1:
-
-        st.metric(
-            "Searched",
-            len(df),
-        )
-
-
-    with m2:
-
-        st.metric(
-            "🟢 Active",
-            active_count,
-        )
-
-
-    with m3:
-
-        st.metric(
-            "🔴 Inactive",
-            inactive_count,
-        )
-
-
-    with m4:
-
-        st.metric(
-            "🔵 Carriers",
-            carrier_count,
-        )
-
-
-    with m5:
-
-        st.metric(
-            "🟣 Brokers",
-            broker_count,
-        )
 
 
     # =====================================================
     # FILTERS
     # =====================================================
 
-    st.subheader("🔎 Filters")
+    st.markdown(
+        '<div class="filter-card">',
+        unsafe_allow_html=True,
+    )
 
+    filter_col1, filter_col2 = st.columns(2)
 
-    filter1, filter2 = st.columns(2)
-
-
-    with filter1:
+    with filter_col1:
 
         status_filter = st.selectbox(
             "Operating Status",
@@ -831,10 +1194,10 @@ if st.session_state.results:
                 "ACTIVE",
                 "INACTIVE",
             ],
+            key="status_filter",
         )
 
-
-    with filter2:
+    with filter_col2:
 
         type_filter = st.selectbox(
             "Broker / Carrier",
@@ -843,47 +1206,90 @@ if st.session_state.results:
                 "CARRIER",
                 "BROKER",
             ],
+            key="type_filter",
         )
+
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 
     # =====================================================
-    # APPLY STATUS FILTER
+    # APPLY FILTERS
     # =====================================================
 
     filtered_df = df.copy()
-
 
     if status_filter != "All":
 
         filtered_df = filtered_df[
             filtered_df[
                 "Operating Status"
-            ]
-            .astype(str)
-            .str.upper()
-            == status_filter
+            ] == status_filter
         ]
-
-
-    # =====================================================
-    # APPLY TYPE FILTER
-    # =====================================================
 
     if type_filter != "All":
 
         filtered_df = filtered_df[
             filtered_df[
                 "Broker/Carrier"
-            ]
-            .astype(str)
-            .str.upper()
-            == type_filter
+            ] == type_filter
         ]
 
 
-    st.caption(
-        f"Showing {len(filtered_df):,} "
-        f"of {len(df):,} searched records."
+    # =====================================================
+    # METRICS FROM FULL RESULTS
+    # =====================================================
+
+    active_count = int(
+        (
+            df["Operating Status"]
+            == "ACTIVE"
+        ).sum()
+    )
+
+    inactive_count = int(
+        (
+            df["Operating Status"]
+            == "INACTIVE"
+        ).sum()
+    )
+
+    broker_count = int(
+        (
+            df["Broker/Carrier"]
+            == "BROKER"
+        ).sum()
+    )
+
+    carrier_count = int(
+        (
+            df["Broker/Carrier"]
+            == "CARRIER"
+        ).sum()
+    )
+
+
+    st.markdown(
+        f"""
+        <span class="badge badge-active">
+            ● Active {active_count}
+        </span>
+
+        <span class="badge badge-inactive">
+            ● Inactive {inactive_count}
+        </span>
+
+        <span class="badge badge-carrier">
+            ◆ Carriers {carrier_count}
+        </span>
+
+        <span class="badge badge-broker">
+            ◆ Brokers {broker_count}
+        </span>
+        """,
+        unsafe_allow_html=True,
     )
 
 
@@ -893,20 +1299,18 @@ if st.session_state.results:
 
     def color_status(value):
 
-        value = str(value).upper()
-
         if value == "ACTIVE":
 
             return (
-                "color: #39ff88; "
-                "font-weight: 800;"
+                "color:#39ff88;"
+                "font-weight:700;"
             )
 
         if value == "INACTIVE":
 
             return (
-                "color: #ff4d67; "
-                "font-weight: 800;"
+                "color:#ff4d67;"
+                "font-weight:700;"
             )
 
         return ""
@@ -914,20 +1318,18 @@ if st.session_state.results:
 
     def color_type(value):
 
-        value = str(value).upper()
-
         if value == "BROKER":
 
             return (
-                "color: #c084fc; "
-                "font-weight: 800;"
+                "color:#c084fc;"
+                "font-weight:700;"
             )
 
         if value == "CARRIER":
 
             return (
-                "color: #60a5fa; "
-                "font-weight: 800;"
+                "color:#60a5fa;"
+                "font-weight:700;"
             )
 
         return ""
@@ -957,31 +1359,52 @@ if st.session_state.results:
     )
 
 
+    st.caption(
+        f"Showing {len(filtered_df):,} "
+        f"of {len(df):,} results."
+    )
+
+
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
     # =====================================================
-    # EXPORT
+    # DOWNLOAD
     # =====================================================
 
-    st.subheader("⬇ Export Filtered Data")
+    st.markdown(
+        '<div class="glass-card">',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "### ⬇ Export Filtered Data"
+    )
 
 
-    export1, export2 = st.columns(2)
+    download_col1, download_col2 = st.columns(
+        2
+    )
 
 
     # =====================================================
     # CSV
     # =====================================================
 
-    csv_data = (
-        filtered_df
-        .to_csv(index=False)
-        .encode("utf-8")
+    csv_data = filtered_df.to_csv(
+        index=False
+    ).encode(
+        "utf-8"
     )
 
 
-    with export1:
+    with download_col1:
 
         st.download_button(
-            "Download Filtered CSV",
+            "Download CSV",
             data=csv_data,
             file_name="mc_filtered_results.csv",
             mime="text/csv",
@@ -995,7 +1418,6 @@ if st.session_state.results:
 
     excel_buffer = io.BytesIO()
 
-
     with pd.ExcelWriter(
         excel_buffer,
         engine="openpyxl",
@@ -1008,10 +1430,10 @@ if st.session_state.results:
         )
 
 
-    with export2:
+    with download_col2:
 
         st.download_button(
-            "Download Filtered Excel",
+            "Download Excel",
             data=excel_buffer.getvalue(),
             file_name="mc_filtered_results.xlsx",
             mime=(
@@ -1022,23 +1444,15 @@ if st.session_state.results:
         )
 
 
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
     # =====================================================
-    # SEARCH ERRORS
+    # ERRORS
     # =====================================================
-
-    errors = []
-
-    for result in st.session_state.results:
-
-        error = result.get(
-            "_error",
-            "",
-        )
-
-        if error:
-
-            errors.append(error)
-
 
     if errors:
 
