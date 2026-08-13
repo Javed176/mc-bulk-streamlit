@@ -300,34 +300,56 @@ def extract_company_name(soup) -> str:
 
     lines = page_lines(soup)
 
-    # DotSearch page starts with:
-    #
-    # JERRODS LLC
-    # dba AR TRANSPORT
-    # TULSA, OK
-    #
+    # =====================================================
+    # FIRST: Look for the company name in the page text.
+    # DotSearch normally displays the company name before
+    # the DBA/address information.
+    # =====================================================
 
     for line in lines:
+
+        line = clean_text(line)
 
         if not line:
             continue
 
+        # Skip navigation / headings
         if line.lower() in (
             "back",
             "dot search",
+            "company officers",
+            "contact information",
+            "operation information",
+            "authority",
+            "physical address",
+            "mailing address",
         ):
             continue
 
+        # Skip DBA
         if line.lower().startswith("dba "):
             continue
 
-        if re.match(
-            r"^(TULSA|OK|DOT|MC)\b",
+        # Skip DOT/MC information
+        if re.search(
+            r"\bDOT\s*#?\s*\d+",
             line,
-            re.I,
+            flags=re.I,
         ):
             continue
 
+        if re.search(
+            r"\bMC\s*#?\s*\d+",
+            line,
+            flags=re.I,
+        ):
+            continue
+
+        # Skip obvious page title
+        if "DOT Search" in line:
+            continue
+
+        # Skip carrier/broker labels
         if line.upper() in (
             "CARRIER",
             "BROKER",
@@ -336,11 +358,73 @@ def extract_company_name(soup) -> str:
         ):
             continue
 
-        return line
+        # Skip addresses
+        if re.search(
+            r"\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b",
+            line,
+        ):
+            continue
+
+        # =================================================
+        # COMPANY NAME
+        # =================================================
+        #
+        # Remove anything accidentally appended after
+        # " - DOT #..."
+        #
+
+        company = re.split(
+            r"\s*-\s*DOT\s*#.*$",
+            line,
+            flags=re.I,
+        )[0].strip()
+
+        # Remove accidental " | DOT Search™"
+        company = re.split(
+            r"\s*\|\s*DOT Search",
+            company,
+            flags=re.I,
+        )[0].strip()
+
+        if company:
+            return company
+
+    # =====================================================
+    # FALLBACK: H1
+    # =====================================================
+
+    h1 = soup.find("h1")
+
+    if h1:
+
+        company = clean_text(
+            h1.get_text(
+                " ",
+                strip=True,
+            )
+        )
+
+        # Remove:
+        # - DOT # 3341131
+        # - | DOT Search™
+        # - anything after it
+
+        company = re.split(
+            r"\s*-\s*DOT\s*#.*$",
+            company,
+            flags=re.I,
+        )[0].strip()
+
+        company = re.split(
+            r"\s*\|\s*DOT Search",
+            company,
+            flags=re.I,
+        )[0].strip()
+
+        if company:
+            return company
 
     return "Not available"
-
-
 # =========================================================
 # MC NUMBER
 # =========================================================
