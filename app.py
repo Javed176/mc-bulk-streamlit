@@ -1,9 +1,10 @@
 import io
+import time
 
 import pandas as pd
 import streamlit as st
 
-from src.search import bulk_fetch
+from src.search import search_one
 
 
 # =========================================================
@@ -18,115 +19,219 @@ st.set_page_config(
 
 
 # =========================================================
+# SESSION STATE
+# =========================================================
+
+if "running" not in st.session_state:
+    st.session_state.running = False
+
+if "current_mc" not in st.session_state:
+    st.session_state.current_mc = None
+
+if "results" not in st.session_state:
+    st.session_state.results = []
+
+if "start_mc" not in st.session_state:
+    st.session_state.start_mc = ""
+
+if "searched_count" not in st.session_state:
+    st.session_state.searched_count = 0
+
+
+# =========================================================
 # TITLE
 # =========================================================
 
-st.title("🚛 MC Bulk Search")
+st.title("🚛 MC Automatic Bulk Search")
 
-st.write(
-    "MC → FMCSA DOT lookup → "
-    "DotSearch data extraction"
+st.caption(
+    "FMCSA is used only to convert MC → DOT. "
+    "Final company data comes from DotSearch."
 )
 
 
 # =========================================================
-# INPUT
+# START MC
 # =========================================================
 
 st.subheader(
-    "Enter MC Numbers"
+    "Start MC Number"
 )
 
-input_text = st.text_area(
-    "MC Numbers",
-    height=180,
-    placeholder=(
-        "1066434\n"
-        "123456\n"
-        "987654"
-    ),
+start_input = st.text_input(
+    "Enter the first MC number",
+    value=st.session_state.start_mc,
+    placeholder="Example: 1066434",
+    disabled=st.session_state.running,
 )
 
 
 # =========================================================
-# SEARCH
+# BUTTONS
 # =========================================================
 
-search_button = st.button(
-    "🔎 Search",
-    type="primary",
-    use_container_width=True,
-)
+col1, col2 = st.columns(2)
 
 
-if search_button:
+with col1:
 
-    if not input_text.strip():
+    start_button = st.button(
+        "▶️ START",
+        type="primary",
+        use_container_width=True,
+        disabled=st.session_state.running,
+    )
 
-        st.warning(
-            "Please enter at least one MC number."
+
+with col2:
+
+    stop_button = st.button(
+        "🛑 STOP",
+        type="secondary",
+        use_container_width=True,
+        disabled=not st.session_state.running,
+    )
+
+
+# =========================================================
+# STOP
+# =========================================================
+
+if stop_button:
+
+    st.session_state.running = False
+
+    st.session_state.current_mc = None
+
+    st.rerun()
+
+
+# =========================================================
+# START
+# =========================================================
+
+if start_button:
+
+    cleaned = (
+        start_input
+        .strip()
+        .replace("MC", "")
+        .replace("mc", "")
+        .strip()
+    )
+
+    if not cleaned.isdigit():
+
+        st.error(
+            "Please enter a valid numeric MC number."
         )
 
         st.stop()
 
+    st.session_state.start_mc = cleaned
 
-    identifiers = [
-        line.strip()
-        for line in input_text.splitlines()
-        if line.strip()
-    ]
-
-
-    identifiers = list(
-        dict.fromkeys(
-            identifiers
-        )
+    st.session_state.current_mc = int(
+        cleaned
     )
 
+    st.session_state.results = []
 
-    st.info(
-        f"Searching {len(identifiers):,} MC number(s)..."
+    st.session_state.searched_count = 0
+
+    st.session_state.running = True
+
+    st.rerun()
+
+
+# =========================================================
+# CURRENT STATUS
+# =========================================================
+
+if st.session_state.running:
+
+    st.warning(
+        f"🔄 Searching MC "
+        f"{st.session_state.current_mc:,}..."
     )
 
+else:
 
-    progress_bar = st.progress(
-        0
-    )
+    if st.session_state.searched_count > 0:
 
-    status_text = st.empty()
-
-
-    def update_progress(
-        current,
-        total,
-    ):
-
-        progress_bar.progress(
-            current / total
-        )
-
-        status_text.write(
-            f"Searching {current:,} of {total:,}..." 
+        st.info(
+            f"Stopped after "
+            f"{st.session_state.searched_count:,} "
+            f"MC number(s)."
         )
 
 
-    results = bulk_fetch(
-        identifiers,
-        progress_callback=update_progress,
+# =========================================================
+# AUTOMATIC SEARCH
+# =========================================================
+
+if st.session_state.running:
+
+    current_mc = (
+        st.session_state.current_mc
     )
 
+    # -----------------------------------------------------
+    # SEARCH CURRENT MC
+    # -----------------------------------------------------
 
-    progress_bar.progress(
-        1.0
+    result = search_one(
+        str(current_mc)
     )
 
-    status_text.success(
-        "Search complete."
+    # -----------------------------------------------------
+    # ADD RESULT
+    # -----------------------------------------------------
+
+    st.session_state.results.append(
+        result
+    )
+
+    st.session_state.searched_count += 1
+
+    # -----------------------------------------------------
+    # NEXT MC
+    # -----------------------------------------------------
+
+    st.session_state.current_mc = (
+        current_mc + 1
+    )
+
+    # -----------------------------------------------------
+    # WAIT A LITTLE
+    # -----------------------------------------------------
+
+    time.sleep(0.5)
+
+    # -----------------------------------------------------
+    # RERUN
+    #
+    # This searches the next MC.
+    # Stop button can interrupt between requests.
+    # -----------------------------------------------------
+
+    st.rerun()
+
+
+# =========================================================
+# RESULTS
+# =========================================================
+
+if st.session_state.results:
+
+    st.divider()
+
+    st.subheader(
+        "📊 Results"
     )
 
 
     # =====================================================
-    # BUILD DATAFRAME
+    # DATAFRAME
     # =====================================================
 
     rows = []
@@ -134,13 +239,18 @@ if search_button:
     errors = []
 
 
-    for result in results:
+    for result in st.session_state.results:
 
         rows.append(
             {
                 "MC Number": result.get(
                     "MC Number",
                     "",
+                ),
+
+                "Owner": result.get(
+                    "Owner",
+                    "Not available",
                 ),
 
                 "Carrier/Broker Name": result.get(
@@ -158,6 +268,11 @@ if search_button:
                     "",
                 ),
 
+                "Number": result.get(
+                    "Number",
+                    "Not available",
+                ),
+
                 "Email Address": result.get(
                     "Email Address",
                     "Not available",
@@ -167,23 +282,11 @@ if search_button:
                     "Location",
                     "Not available",
                 ),
-
-                "Owner": result.get(
-                    "Owner",
-                    "Not available",
-                ),
-
-                "Number": result.get(
-                    "Number",
-                    "Not available",
-                ),
             }
         )
 
 
-        if result.get(
-            "_error"
-        ):
+        if result.get("_error"):
 
             errors.append(
                 result["_error"]
@@ -194,26 +297,24 @@ if search_button:
         rows,
         columns=[
             "MC Number",
+            "Owner",
             "Carrier/Broker Name",
             "Broker/Carrier",
             "Operating Status",
+            "Number",
             "Email Address",
             "Location",
-            "Owner",
-            "Number",
         ],
     )
 
 
     # =====================================================
-    # SUMMARY
+    # COUNTERS
     # =====================================================
 
     active_count = int(
         (
-            df[
-                "Operating Status"
-            ]
+            df["Operating Status"]
             == "ACTIVE"
         ).sum()
     )
@@ -221,30 +322,24 @@ if search_button:
 
     inactive_count = int(
         (
-            df[
-                "Operating Status"
-            ]
+            df["Operating Status"]
             == "INACTIVE"
-        ).sum()
-    )
-
-
-    broker_count = int(
-        (
-            df[
-                "Broker/Carrier"
-            ]
-            == "BROKER"
         ).sum()
     )
 
 
     carrier_count = int(
         (
-            df[
-                "Broker/Carrier"
-            ]
+            df["Broker/Carrier"]
             == "CARRIER"
+        ).sum()
+    )
+
+
+    broker_count = int(
+        (
+            df["Broker/Carrier"]
+            == "BROKER"
         ).sum()
     )
 
@@ -255,7 +350,7 @@ if search_button:
 
 
     col1.metric(
-        "Total",
+        "Searched",
         len(df),
     )
 
@@ -276,12 +371,10 @@ if search_button:
 
 
     # =====================================================
-    # COLOR STATUS
+    # STATUS COLORS
     # =====================================================
 
-    def color_status(
-        value,
-    ):
+    def color_status(value):
 
         if value == "ACTIVE":
 
@@ -300,9 +393,7 @@ if search_button:
         return ""
 
 
-    def color_type(
-        value,
-    ):
+    def color_type(value):
 
         if value == "BROKER":
 
@@ -339,13 +430,8 @@ if search_button:
 
 
     # =====================================================
-    # RESULTS
+    # SHOW TABLE
     # =====================================================
-
-    st.subheader(
-        "Results"
-    )
-
 
     st.dataframe(
         styled_df,
