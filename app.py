@@ -5,7 +5,22 @@ import pandas as pd
 import streamlit as st
 
 from src.search import search_one
-from src.auth import require_login, logout_user
+from src.auth import (
+    require_login,
+    logout_user,
+    is_admin,
+    hash_password,
+)
+from src.database import (
+    create_user_record,
+    update_user,
+    list_users,
+)
+from src.audit import (
+    log_action,
+    audit_dataframe,
+    cleanup_audit_logs,
+)
 
 
 # =========================================================
@@ -21,7 +36,7 @@ st.set_page_config(
 
 
 # =========================================================
-# AUTHENTICATION
+# AUTH
 # =========================================================
 
 require_login()
@@ -38,17 +53,17 @@ defaults = {
     "last_searched_mc": None,
     "results": [],
     "searched_count": 0,
-    "status_filter": "ALL",
-    "type_filter": "ALL",
+    "active_page": "Search",
 }
 
 for key, value in defaults.items():
+
     if key not in st.session_state:
         st.session_state[key] = value
 
 
 # =========================================================
-# GLOBAL CSS
+# CSS
 # =========================================================
 
 st.markdown(
@@ -56,676 +71,241 @@ st.markdown(
 <style>
 
 .stApp {
-
     background:
         radial-gradient(
             circle at 10% 10%,
-            rgba(80,110,255,0.18),
+            rgba(80,110,255,.18),
             transparent 30%
         ),
         radial-gradient(
             circle at 90% 10%,
-            rgba(180,70,255,0.16),
+            rgba(180,70,255,.16),
             transparent 30%
         ),
         radial-gradient(
             circle at 50% 100%,
-            rgba(40,120,255,0.10),
+            rgba(40,120,255,.10),
             transparent 35%
         ),
         linear-gradient(
             135deg,
-            #05060a 0%,
+            #05060a,
             #0b0d14 45%,
-            #05060a 100%
+            #05060a
         );
 
-    color: #f5f7ff;
+    color:#f5f7ff;
 }
-
-
-/* =====================================================
-   MAIN
-   ===================================================== */
 
 .block-container {
-
-    max-width: 1450px;
-
-    padding-top: 2.2rem;
-    padding-bottom: 4rem;
+    max-width:1450px;
+    padding-top:2rem;
+    padding-bottom:4rem;
 }
 
-
-/* =====================================================
-   GLASS CARD
-   ===================================================== */
-
 .glass-card {
-
     background:
         linear-gradient(
             135deg,
-            rgba(255,255,255,0.105),
-            rgba(255,255,255,0.035)
+            rgba(255,255,255,.105),
+            rgba(255,255,255,.035)
         );
 
-    border:
-        1px solid rgba(255,255,255,0.12);
-
-    border-radius: 28px;
-
-    padding: 28px;
-
-    margin-bottom: 20px;
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:28px;
+    padding:28px;
+    margin-bottom:20px;
 
     box-shadow:
-        0 20px 70px rgba(0,0,0,0.45),
-        inset 0 1px 0 rgba(255,255,255,0.08);
+        0 20px 70px rgba(0,0,0,.45),
+        inset 0 1px 0 rgba(255,255,255,.08);
 
-    backdrop-filter:
-        blur(25px)
-        saturate(160%);
-
-    -webkit-backdrop-filter:
-        blur(25px)
-        saturate(160%);
+    backdrop-filter:blur(25px) saturate(160%);
 }
 
-
-/* =====================================================
-   HERO
-   ===================================================== */
-
 .hero-title {
-
-    font-size: 3rem;
-
-    font-weight: 800;
-
-    letter-spacing: -0.05em;
+    font-size:3rem;
+    font-weight:800;
+    letter-spacing:-.05em;
 
     background:
         linear-gradient(
             90deg,
-            #ffffff,
+            #fff,
             #b9c5ff,
-            #ffffff
+            #fff
         );
 
-    -webkit-background-clip: text;
-
-    -webkit-text-fill-color: transparent;
+    -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;
 }
-
 
 .hero-subtitle {
-
-    color:
-        rgba(235,240,255,0.62);
-
-    font-size: 1rem;
-
-    margin-top: 6px;
+    color:rgba(235,240,255,.62);
+    font-size:1rem;
+    margin-top:6px;
 }
-
-
-/* =====================================================
-   INPUT
-   ===================================================== */
 
 div[data-baseweb="input"] {
-
-    background:
-        rgba(255,255,255,0.065) !important;
-
-    border:
-        1px solid rgba(255,255,255,0.12) !important;
-
-    border-radius:
-        18px !important;
-
-    transition:
-        all 0.25s ease;
+    background:rgba(255,255,255,.065)!important;
+    border:1px solid rgba(255,255,255,.12)!important;
+    border-radius:18px!important;
 }
-
 
 div[data-baseweb="input"]:focus-within {
-
     border-color:
-        rgba(120,145,255,0.85) !important;
+        rgba(120,145,255,.85)!important;
 
     box-shadow:
-        0 0 0 3px rgba(100,125,255,0.12),
-        0 0 30px rgba(80,100,255,0.15);
+        0 0 0 3px rgba(100,125,255,.12),
+        0 0 30px rgba(80,100,255,.15);
 }
-
 
 input {
-
-    color:
-        #ffffff !important;
-
-    font-size:
-        1.05rem !important;
+    color:white!important;
 }
 
-
-/* =====================================================
-   BUTTONS
-   ===================================================== */
-
 .stButton > button {
-
-    min-height:
-        50px;
-
-    border-radius:
-        18px !important;
+    min-height:50px;
+    border-radius:18px!important;
 
     border:
-        1px solid rgba(255,255,255,0.14) !important;
+        1px solid rgba(255,255,255,.14)!important;
 
     background:
         linear-gradient(
             135deg,
-            rgba(255,255,255,0.12),
-            rgba(255,255,255,0.045)
-        ) !important;
+            rgba(255,255,255,.12),
+            rgba(255,255,255,.045)
+        )!important;
 
-    color:
-        #ffffff !important;
-
-    font-weight:
-        700 !important;
-
-    box-shadow:
-        0 10px 30px rgba(0,0,0,0.25),
-        inset 0 1px 0 rgba(255,255,255,0.10);
+    color:white!important;
+    font-weight:700!important;
 
     transition:
-        transform 0.2s ease,
-        box-shadow 0.2s ease,
-        background 0.2s ease;
+        transform .2s ease,
+        box-shadow .2s ease;
 }
 
-
 .stButton > button:hover {
-
     transform:
         translateY(-2px)
         scale(1.015);
 
-    background:
-        linear-gradient(
-            135deg,
-            rgba(105,130,255,0.30),
-            rgba(130,80,255,0.20)
-        ) !important;
-
     box-shadow:
-        0 12px 35px rgba(75,95,255,0.28),
-        0 0 25px rgba(90,110,255,0.18);
+        0 12px 35px
+        rgba(75,95,255,.28);
 }
-
-
-.stButton > button:active {
-
-    transform:
-        scale(0.97);
-}
-
-
-/* =====================================================
-   CURRENT MC
-   ===================================================== */
 
 .current-mc-card {
-
-    text-align:
-        center;
-
-    padding:
-        25px 20px;
-
-    margin-top:
-        20px;
-
-    border-radius:
-        24px;
+    text-align:center;
+    padding:25px 20px;
+    margin-top:20px;
+    border-radius:24px;
 
     background:
         linear-gradient(
             135deg,
-            rgba(90,110,255,0.13),
-            rgba(160,70,255,0.08)
+            rgba(90,110,255,.13),
+            rgba(160,70,255,.08)
         );
 
     border:
-        1px solid rgba(130,150,255,0.18);
-
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.08),
-        0 15px 45px rgba(0,0,0,0.25);
+        1px solid rgba(130,150,255,.18);
 }
-
 
 .current-label {
-
-    color:
-        #9da6c0;
-
-    font-size:
-        0.9rem;
-
-    font-weight:
-        600;
-
-    text-transform:
-        uppercase;
-
-    letter-spacing:
-        0.08em;
+    color:#9da6c0;
+    font-size:.9rem;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.08em;
 }
-
 
 .current-number {
-
-    font-size:
-        2.7rem;
-
-    font-weight:
-        800;
-
-    color:
-        #ffffff;
-
-    margin-top:
-        5px;
-
-    text-shadow:
-        0 0 25px rgba(100,130,255,0.35);
+    font-size:2.7rem;
+    font-weight:800;
+    color:white;
+    margin-top:5px;
 }
-
 
 .current-hint {
-
-    color:
-        #8993ad;
-
-    font-size:
-        0.85rem;
-
-    margin-top:
-        5px;
+    color:#8993ad;
+    font-size:.85rem;
 }
 
-
-/* =====================================================
-   LIVE DOT
-   ===================================================== */
-
 .live-dot {
-
-    display:
-        inline-block;
-
-    width:
-        10px;
-
-    height:
-        10px;
-
-    border-radius:
-        50%;
-
-    background:
-        #36ff8a;
+    display:inline-block;
+    width:10px;
+    height:10px;
+    border-radius:50%;
+    background:#36ff8a;
 
     box-shadow:
         0 0 8px #36ff8a,
         0 0 20px #36ff8a;
 
-    animation:
-        pulse 1.4s infinite;
-
-    margin-right:
-        8px;
+    animation:pulse 1.4s infinite;
+    margin-right:8px;
 }
-
 
 @keyframes pulse {
 
     0% {
-        transform:
-            scale(0.85);
-
-        opacity:
-            0.6;
+        transform:scale(.85);
+        opacity:.6;
     }
 
     50% {
-        transform:
-            scale(1.2);
-
-        opacity:
-            1;
+        transform:scale(1.2);
+        opacity:1;
     }
 
     100% {
-        transform:
-            scale(0.85);
-
-        opacity:
-            0.6;
+        transform:scale(.85);
+        opacity:.6;
     }
 }
-
-
-/* =====================================================
-   BADGES
-   ===================================================== */
 
 .badge {
-
-    display:
-        inline-block;
-
-    padding:
-        9px 15px;
-
-    margin:
-        4px 6px 10px 0;
-
-    border-radius:
-        999px;
-
-    font-weight:
-        700;
-
-    font-size:
-        0.9rem;
+    display:inline-block;
+    padding:9px 15px;
+    margin:4px 6px 10px 0;
+    border-radius:999px;
+    font-weight:700;
 }
-
 
 .badge-active {
-
-    color:
-        #58ff9a;
-
-    background:
-        rgba(40,255,130,0.10);
-
-    border:
-        1px solid rgba(60,255,145,0.25);
-
-    box-shadow:
-        0 0 18px rgba(50,255,130,0.08);
+    color:#58ff9a;
+    background:rgba(40,255,130,.10);
+    border:1px solid rgba(60,255,145,.25);
 }
-
 
 .badge-inactive {
-
-    color:
-        #ff667d;
-
-    background:
-        rgba(255,70,100,0.10);
-
-    border:
-        1px solid rgba(255,80,105,0.22);
+    color:#ff667d;
+    background:rgba(255,70,100,.10);
+    border:1px solid rgba(255,80,105,.22);
 }
-
 
 .badge-carrier {
-
-    color:
-        #66aaff;
-
-    background:
-        rgba(70,130,255,0.10);
-
-    border:
-        1px solid rgba(80,140,255,0.22);
+    color:#66aaff;
+    background:rgba(70,130,255,.10);
+    border:1px solid rgba(80,140,255,.22);
 }
-
 
 .badge-broker {
-
-    color:
-        #d18aff;
-
-    background:
-        rgba(180,80,255,0.10);
-
-    border:
-        1px solid rgba(190,90,255,0.22);
+    color:#d18aff;
+    background:rgba(180,80,255,.10);
+    border:1px solid rgba(190,90,255,.22);
 }
 
-
-/* =====================================================
-   FILTER CARD
-   ===================================================== */
-
-.filter-card {
-
-    margin-top:
-        18px;
-
-    padding:
-        20px;
-
-    border-radius:
-        22px;
-
-    background:
-        rgba(255,255,255,0.035);
-
-    border:
-        1px solid rgba(255,255,255,0.08);
+.admin-header {
+    font-size:2rem;
+    font-weight:800;
 }
 
-
-/* =====================================================
-   DATAFRAME
-   ===================================================== */
-
-div[data-testid="stDataFrame"] {
-
-    border-radius:
-        22px;
-
-    overflow:
-        hidden;
-
-    border:
-        1px solid rgba(255,255,255,0.10);
-
-    box-shadow:
-        0 20px 60px rgba(0,0,0,0.30);
-}
-
-
-/* =====================================================
-   METRICS
-   ===================================================== */
-
-div[data-testid="stMetric"] {
-
-    background:
-        linear-gradient(
-            135deg,
-            rgba(255,255,255,0.09),
-            rgba(255,255,255,0.035)
-        );
-
-    border:
-        1px solid rgba(255,255,255,0.10);
-
-    border-radius:
-        22px;
-
-    padding:
-        18px;
-
-    box-shadow:
-        0 15px 40px rgba(0,0,0,0.25);
-}
-
-
-div[data-testid="stMetricValue"] {
-
-    color:
-        #ffffff !important;
-}
-
-
-/* =====================================================
-   BLACK HOLE
-   ===================================================== */
-
-.black-hole {
-
-    position:
-        fixed;
-
-    left:
-        50%;
-
-    top:
-        50%;
-
-    transform:
-        translate(-50%, -50%);
-
-    width:
-        220px;
-
-    height:
-        220px;
-
-    border-radius:
-        50%;
-
-    z-index:
-        999999;
-
-    pointer-events:
-        none;
-
-    background:
-        radial-gradient(
-            circle,
-            #000 0%,
-            #000 27%,
-            #17002c 30%,
-            #6d1cff 43%,
-            #ff4fd8 48%,
-            #151020 58%,
-            transparent 70%
-        );
-
-    box-shadow:
-        0 0 35px #7a2cff,
-        0 0 100px #5a1cff,
-        0 0 180px rgba(255,40,210,0.35);
-
-    animation:
-        blackHole 1.35s
-        cubic-bezier(.6,0,.1,1)
-        forwards;
-}
-
-
-@keyframes blackHole {
-
-    0% {
-
-        width:
-            20px;
-
-        height:
-            20px;
-
-        opacity:
-            0;
-
-        transform:
-            translate(-50%, -50%)
-            rotate(0deg);
-    }
-
-    25% {
-
-        width:
-            260px;
-
-        height:
-            260px;
-
-        opacity:
-            1;
-    }
-
-    65% {
-
-        width:
-            330px;
-
-        height:
-            330px;
-
-        opacity:
-            1;
-
-        filter:
-            brightness(1.4);
-    }
-
-    100% {
-
-        width:
-            0;
-
-        height:
-            0;
-
-        opacity:
-            0;
-
-        transform:
-            translate(-50%, -50%)
-            rotate(540deg);
-    }
-}
-
-
-/* =====================================================
-   MOBILE
-   ===================================================== */
-
-@media (max-width: 768px) {
-
-    .hero-title {
-
-        font-size:
-            2.2rem;
-    }
-
-    .block-container {
-
-        padding-left:
-            1rem;
-
-        padding-right:
-            1rem;
-    }
-
-    .current-number {
-
-        font-size:
-            2.2rem;
-    }
+.admin-small {
+    color:#9da6c0;
 }
 
 </style>
@@ -735,58 +315,558 @@ div[data-testid="stMetricValue"] {
 
 
 # =========================================================
-# HEADER
-# IMPORTANT:
-# st.html() prevents the HTML source from appearing as text.
+# TOP HEADER
 # =========================================================
 
-st.html(
-    """
-    <div class="glass-card">
-
-        <div class="hero-title">
-            ✦ MC Search
-        </div>
-
-        <div class="hero-subtitle">
-            FMCSA intelligence → DotSearch enrichment
-        </div>
-
-    </div>
-    """
+header_col1, header_col2 = st.columns(
+    [5, 1]
 )
 
+with header_col1:
+
+    st.markdown(
+        """
+<div class="glass-card">
+
+<div class="hero-title">
+    ✦ MC Search
+</div>
+
+<div class="hero-subtitle">
+    FMCSA intelligence → DotSearch enrichment
+</div>
+
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+with header_col2:
+
+    st.markdown(
+        "<br>",
+        unsafe_allow_html=True,
+    )
+
+    if st.button(
+        "🚪 Sign Out",
+        use_container_width=True,
+    ):
+
+        log_action(
+            "LOGOUT",
+            details="User signed out",
+        )
+
+        logout_user()
+        st.rerun()
+
+
+# =========================================================
+# NAVIGATION
+# =========================================================
+
+if is_admin():
+
+    nav1, nav2 = st.columns(2)
+
+    with nav1:
+
+        search_page = st.button(
+            "🔎 MC Search",
+            use_container_width=True,
+        )
+
+    with nav2:
+
+        admin_page = st.button(
+            "⚙️ Admin Panel",
+            use_container_width=True,
+        )
+
+    if search_page:
+        st.session_state.active_page = "Search"
+
+    if admin_page:
+        st.session_state.active_page = "Admin"
+
+else:
+
+    st.session_state.active_page = "Search"
+
+
+# =========================================================
+# ADMIN PANEL
+# =========================================================
+
+if (
+    st.session_state.active_page == "Admin"
+    and is_admin()
+):
+
+    st.markdown(
+        '<div class="glass-card">',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+<div class="admin-header">
+    ⚙️ Admin Panel
+</div>
+
+<div class="admin-small">
+    Manage users, security and audit activity.
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+    # =====================================================
+    # ADMIN TABS
+    # =====================================================
+
+    tab_users, tab_security, tab_audit = st.tabs(
+        [
+            "👥 Users",
+            "🛡️ Security",
+            "📋 Audit Log",
+        ]
+    )
+
+
+    # =====================================================
+    # USERS
+    # =====================================================
+
+    with tab_users:
+
+        st.markdown(
+            '<div class="glass-card">',
+            unsafe_allow_html=True,
+        )
+
+        st.subheader("👥 User Management")
+
+        try:
+
+            users = list_users()
+
+            if users:
+
+                users_df = pd.DataFrame(users)
+
+                st.dataframe(
+                    users_df,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            else:
+
+                st.info(
+                    "No Supabase users found."
+                )
+
+        except Exception as exc:
+
+            st.error(
+                f"Unable to load users: {exc}"
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+        # -------------------------------------------------
+        # CREATE USER
+        # -------------------------------------------------
+
+        st.markdown(
+            '<div class="glass-card">',
+            unsafe_allow_html=True,
+        )
+
+        st.subheader("➕ Create User")
+
+        with st.form(
+            "create_user_form"
+        ):
+
+            new_username = st.text_input(
+                "Username",
+                placeholder="username",
+            )
+
+            new_password = st.text_input(
+                "Password",
+                type="password",
+                placeholder="Password",
+            )
+
+            new_role = st.selectbox(
+                "Role",
+                [
+                    "user",
+                    "admin",
+                ],
+            )
+
+            create_button = st.form_submit_button(
+                "Create User",
+                use_container_width=True,
+            )
+
+        if create_button:
+
+            username_clean = (
+                new_username
+                .strip()
+            )
+
+            if not username_clean:
+
+                st.error(
+                    "Username is required."
+                )
+
+            elif len(new_password) < 8:
+
+                st.error(
+                    "Password must contain at least "
+                    "8 characters."
+                )
+
+            else:
+
+                try:
+
+                    existing_users = (
+                        list_users()
+                    )
+
+                    exists = any(
+                        str(
+                            u.get(
+                                "username",
+                                "",
+                            )
+                        ).lower()
+                        == username_clean.lower()
+                        for u in existing_users
+                    )
+
+                    if exists:
+
+                        st.error(
+                            "That username already exists."
+                        )
+
+                    else:
+
+                        create_user_record(
+                            username_clean,
+                            hash_password(
+                                new_password
+                            ),
+                            new_role,
+                        )
+
+                        log_action(
+                            "CREATE_USER",
+                            details=(
+                                f"Created user "
+                                f"{username_clean} "
+                                f"with role {new_role}"
+                            ),
+                        )
+
+                        st.success(
+                            "✓ User created."
+                        )
+
+                        st.rerun()
+
+                except Exception as exc:
+
+                    st.error(
+                        f"Unable to create user: {exc}"
+                    )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+        # -------------------------------------------------
+        # USER ACTIONS
+        # -------------------------------------------------
+
+        st.markdown(
+            '<div class="glass-card">',
+            unsafe_allow_html=True,
+        )
+
+        st.subheader("🔧 User Actions")
+
+        try:
+
+            users = list_users()
+
+            usernames = [
+                str(
+                    u.get(
+                        "username",
+                        "",
+                    )
+                )
+                for u in users
+            ]
+
+            editable_users = [
+                u
+                for u in usernames
+                if u != st.session_state.username
+            ]
+
+            if editable_users:
+
+                selected_user = st.selectbox(
+                    "Select user",
+                    editable_users,
+                    key="admin_selected_user",
+                )
+
+                action_col1, action_col2 = st.columns(2)
+
+                with action_col1:
+
+                    if st.button(
+                        "🔄 Toggle Active",
+                        use_container_width=True,
+                    ):
+
+                        selected_record = next(
+                            (
+                                u
+                                for u in users
+                                if u.get(
+                                    "username"
+                                )
+                                == selected_user
+                            ),
+                            None,
+                        )
+
+                        if selected_record:
+
+                            new_active = not bool(
+                                selected_record.get(
+                                    "active",
+                                    True,
+                                )
+                            )
+
+                            update_user(
+                                selected_user,
+                                {
+                                    "active": new_active
+                                },
+                            )
+
+                            log_action(
+                                "USER_STATUS_CHANGE",
+                                details=(
+                                    f"{selected_user} "
+                                    f"active={new_active}"
+                                ),
+                            )
+
+                            st.success(
+                                "User status updated."
+                            )
+
+                            st.rerun()
+
+                with action_col2:
+
+                    reset_password = st.text_input(
+                        "New password",
+                        type="password",
+                        key="admin_reset_password",
+                    )
+
+                    if st.button(
+                        "🔑 Reset Password",
+                        use_container_width=True,
+                    ):
+
+                        if len(
+                            reset_password
+                        ) < 8:
+
+                            st.error(
+                                "Password must be at least "
+                                "8 characters."
+                            )
+
+                        else:
+
+                            update_user(
+                                selected_user,
+                                {
+                                    "password_hash":
+                                        hash_password(
+                                            reset_password
+                                        )
+                                },
+                            )
+
+                            log_action(
+                                "PASSWORD_RESET",
+                                details=(
+                                    f"Password reset "
+                                    f"for {selected_user}"
+                                ),
+                            )
+
+                            st.success(
+                                "Password reset successfully."
+                            )
+
+            else:
+
+                st.info(
+                    "No other users available."
+                )
+
+        except Exception as exc:
+
+            st.error(
+                f"Unable to manage users: {exc}"
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+    # =====================================================
+    # SECURITY
+    # =====================================================
+
+    with tab_security:
+
+        st.markdown(
+            '<div class="glass-card">',
+            unsafe_allow_html=True,
+        )
+
+        st.subheader("🛡️ Security")
+
+        st.metric(
+            "Current User",
+            st.session_state.username,
+        )
+
+        st.metric(
+            "Role",
+            st.session_state.role.upper(),
+        )
+
+        st.success(
+            "✓ Authenticated administrator session"
+        )
+
+        st.caption(
+            "Passwords are stored as SHA-256 hashes. "
+            "The application does not display stored passwords."
+        )
+
+        if st.button(
+            "🧹 Clean Audit Logs Older Than 90 Days",
+            use_container_width=True,
+        ):
+
+            cleanup_audit_logs()
+
+            log_action(
+                "AUDIT_CLEANUP",
+                details=(
+                    "Removed audit records older than 90 days"
+                ),
+            )
+
+            st.success(
+                "Audit cleanup completed."
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+    # =====================================================
+    # AUDIT
+    # =====================================================
+
+    with tab_audit:
+
+        st.markdown(
+            '<div class="glass-card">',
+            unsafe_allow_html=True,
+        )
+
+        st.subheader("📋 Audit Log")
+
+        try:
+
+            audit_df = audit_dataframe()
+
+            if audit_df.empty:
+
+                st.info(
+                    "No audit events found."
+                )
+
+            else:
+
+                st.dataframe(
+                    audit_df,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        except Exception as exc:
+
+            st.error(
+                f"Unable to load audit log: {exc}"
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+    st.stop()
+
+
+# =========================================================
+# SEARCH PAGE
+# =========================================================
 
 # =========================================================
 # CONTROL CARD
 # =========================================================
 
-st.html(
-    """
-    <div class="glass-card">
-        <div style="
-            font-size:1.35rem;
-            font-weight:750;
-            margin-bottom:10px;
-        ">
-            🎯 Search Control
-        </div>
-    """
+st.markdown(
+    '<div class="glass-card">',
+    unsafe_allow_html=True,
 )
 
-# Streamlit components cannot safely live inside the HTML
-# element above, so the visual card is closed here.
-
-st.html("</div>")
+st.markdown("### 🎯 Search Control")
 
 
 # =========================================================
-# START MC INPUT
+# START MC
 # =========================================================
 
-start_value = str(
-    st.session_state.start_mc
-)
+start_value = st.session_state.start_mc
 
 start_input = st.text_input(
     "Start MC",
@@ -808,13 +888,18 @@ st.caption(
 
 if st.session_state.running:
 
-    display_mc = st.session_state.current_mc
+    display_mc = (
+        st.session_state.current_mc
+    )
 
     display_hint = (
         "Search running • next MC will update automatically"
     )
 
-elif st.session_state.last_searched_mc is not None:
+elif (
+    st.session_state.last_searched_mc
+    is not None
+):
 
     display_mc = (
         st.session_state.last_searched_mc
@@ -830,17 +915,12 @@ elif st.session_state.start_mc:
         st.session_state.start_mc
     )
 
-    display_hint = (
-        "Ready to search"
-    )
+    display_hint = "Ready to search"
 
 else:
 
     display_mc = "—"
-
-    display_hint = (
-        "Enter a starting MC"
-    )
+    display_hint = "Enter a starting MC"
 
 
 if display_mc != "—":
@@ -860,24 +940,25 @@ else:
     formatted_mc = "—"
 
 
-st.html(
+st.markdown(
     f"""
-    <div class="current-mc-card">
+<div class="current-mc-card">
 
-        <div class="current-label">
-            Current MC Number
-        </div>
-
-        <div class="current-number">
-            {formatted_mc}
-        </div>
-
-        <div class="current-hint">
-            {display_hint}
-        </div>
-
+    <div class="current-label">
+        Current MC Number
     </div>
-    """
+
+    <div class="current-number">
+        {formatted_mc}
+    </div>
+
+    <div class="current-hint">
+        {display_hint}
+    </div>
+
+</div>
+""",
+    unsafe_allow_html=True,
 )
 
 
@@ -915,35 +996,29 @@ with col3:
     )
 
 
+st.markdown(
+    "</div>",
+    unsafe_allow_html=True,
+)
+
+
 # =========================================================
 # CLEAR HISTORY
 # =========================================================
 
 if clear_button:
 
-    st.html(
-        """
-        <div class="black-hole"></div>
-        """
-    )
-
-    time.sleep(1.0)
-
     st.session_state.running = False
-
     st.session_state.start_mc = ""
-
     st.session_state.current_mc = None
-
     st.session_state.last_searched_mc = None
-
     st.session_state.results = []
-
     st.session_state.searched_count = 0
 
-    st.session_state.status_filter = "ALL"
-
-    st.session_state.type_filter = "ALL"
+    log_action(
+        "CLEAR_HISTORY",
+        details="MC search history cleared",
+    )
 
     st.rerun()
 
@@ -954,20 +1029,25 @@ if clear_button:
 
 if stop_button:
 
-    if (
-        st.session_state.current_mc
-        is not None
-    ):
+    if st.session_state.current_mc is not None:
 
         st.session_state.last_searched_mc = (
-            int(st.session_state.current_mc) - 1
+            int(
+                st.session_state.current_mc
+            ) - 1
         )
 
     st.session_state.running = False
-
     st.session_state.current_mc = None
 
-    # Results intentionally remain.
+    log_action(
+        "SEARCH_STOPPED",
+        mc_number=str(
+            st.session_state.last_searched_mc
+            or ""
+        ),
+        details="Sequential MC search stopped",
+    )
 
     st.rerun()
 
@@ -994,12 +1074,10 @@ if start_button:
 
         st.stop()
 
-    start_number = int(
-        cleaned
-    )
+    start_number = int(cleaned)
 
-    st.session_state.start_mc = (
-        str(start_number)
+    st.session_state.start_mc = str(
+        start_number
     )
 
     st.session_state.current_mc = (
@@ -1010,8 +1088,11 @@ if start_button:
 
     st.session_state.running = True
 
-    # IMPORTANT:
-    # Existing results are NOT cleared.
+    log_action(
+        "SEARCH_STARTED",
+        mc_number=str(start_number),
+        details="Sequential MC search started",
+    )
 
     st.rerun()
 
@@ -1022,51 +1103,55 @@ if start_button:
 
 if st.session_state.running:
 
-    current = int(
+    current = (
         st.session_state.current_mc
     )
 
-    st.html(
+    st.markdown(
         f"""
-        <div class="glass-card">
+<div class="glass-card">
 
-            <span class="live-dot"></span>
+    <span class="live-dot"></span>
 
-            <b>
-                Searching MC {current:,}
-            </b>
+    <b>
+        Searching MC {int(current):,}
+    </b>
 
-            <br>
+    <br>
 
-            <small style="color:#9da6c0;">
-                Searching sequential MC numbers automatically...
-            </small>
+    <small style="color:#9da6c0;">
+        Searching sequential MC numbers automatically...
+    </small>
 
-        </div>
-        """
+</div>
+""",
+        unsafe_allow_html=True,
     )
 
 
-elif st.session_state.searched_count > 0:
+elif (
+    st.session_state.searched_count > 0
+):
 
-    st.html(
+    st.markdown(
         f"""
-        <div class="glass-card">
+<div class="glass-card">
 
-            <b style="color:#72ffae;">
-                ✓ Search stopped
-            </b>
+    <b style="color:#72ffae;">
+        ✓ Search stopped
+    </b>
 
-            <br><br>
+    <br><br>
 
-            <small style="color:#9da6c0;">
-                {st.session_state.searched_count:,}
-                MC number(s) processed.
-                Results are preserved until Clear History.
-            </small>
+    <small style="color:#9da6c0;">
+        {st.session_state.searched_count:,}
+        MC number(s) processed.
+        Results are preserved until Clear History.
+    </small>
 
-        </div>
-        """
+</div>
+""",
+        unsafe_allow_html=True,
     )
 
 
@@ -1080,17 +1165,9 @@ if st.session_state.running:
         st.session_state.current_mc
     )
 
-    # -----------------------------------------------------
-    # Search the EXACT current MC
-    # -----------------------------------------------------
-
     result = search_one(
         str(current_mc)
     )
-
-    # -----------------------------------------------------
-    # Save result
-    # -----------------------------------------------------
 
     st.session_state.results.append(
         result
@@ -1098,30 +1175,15 @@ if st.session_state.running:
 
     st.session_state.searched_count += 1
 
-    # -----------------------------------------------------
-    # Remember the MC actually searched
-    # -----------------------------------------------------
-
     st.session_state.last_searched_mc = (
         current_mc
     )
-
-    # -----------------------------------------------------
-    # Advance to next MC
-    #
-    # 1800000
-    # 1800001
-    # 1800002
-    # 1800003
-    # -----------------------------------------------------
 
     st.session_state.current_mc = (
         current_mc + 1
     )
 
-    time.sleep(
-        0.5
-    )
+    time.sleep(0.5)
 
     st.rerun()
 
@@ -1132,10 +1194,9 @@ if st.session_state.running:
 
 if st.session_state.results:
 
-    st.html(
-        """
-        <div class="glass-card">
-        """
+    st.markdown(
+        '<div class="glass-card">',
+        unsafe_allow_html=True,
     )
 
     st.markdown(
@@ -1143,15 +1204,12 @@ if st.session_state.results:
     )
 
 
-    # =====================================================
-    # BUILD DATAFRAME
-    # =====================================================
-
     rows = []
-
     errors = []
 
-    for result in st.session_state.results:
+    for result in (
+        st.session_state.results
+    ):
 
         rows.append(
             {
@@ -1159,37 +1217,30 @@ if st.session_state.results:
                     "MC Number",
                     "",
                 ),
-
                 "Owner": result.get(
                     "Owner",
                     "Not available",
                 ),
-
                 "Carrier/Broker Name": result.get(
                     "Carrier/Broker Name",
                     "",
                 ),
-
                 "Broker/Carrier": result.get(
                     "Broker/Carrier",
                     "",
                 ),
-
                 "Operating Status": result.get(
                     "Operating Status",
                     "",
                 ),
-
                 "Number": result.get(
                     "Number",
                     "Not available",
                 ),
-
                 "Email Address": result.get(
                     "Email Address",
                     "Not available",
                 ),
-
                 "Location": result.get(
                     "Location",
                     "Not available",
@@ -1198,7 +1249,6 @@ if st.session_state.results:
         )
 
         if result.get("_error"):
-
             errors.append(
                 result["_error"]
             )
@@ -1223,22 +1273,14 @@ if st.session_state.results:
     # FILTERS
     # =====================================================
 
-    st.html(
-        """
-        <div class="filter-card">
-            <div style="
-                font-size:1.1rem;
-                font-weight:750;
-                margin-bottom:5px;
-            ">
-                🔎 Filters
-            </div>
-        """
+    st.markdown(
+        '<div class="filter-card">',
+        unsafe_allow_html=True,
     )
 
+    st.markdown("#### 🔎 Filters")
 
     filter_col1, filter_col2 = st.columns(2)
-
 
     with filter_col1:
 
@@ -1252,7 +1294,6 @@ if st.session_state.results:
             key="status_filter",
         )
 
-
     with filter_col2:
 
         type_filter = st.selectbox(
@@ -1265,44 +1306,34 @@ if st.session_state.results:
             key="type_filter",
         )
 
-
     filtered_df = df.copy()
-
 
     if status_filter != "ALL":
 
         filtered_df = filtered_df[
             filtered_df[
                 "Operating Status"
-            ]
-            .astype(str)
-            .str.upper()
+            ].astype(str).str.upper()
             == status_filter
         ]
-
 
     if type_filter != "ALL":
 
         filtered_df = filtered_df[
             filtered_df[
                 "Broker/Carrier"
-            ]
-            .astype(str)
-            .str.upper()
+            ].astype(str).str.upper()
             == type_filter
         ]
-
 
     st.caption(
         f"Showing {len(filtered_df):,} "
         f"of {len(df):,} result(s)"
     )
 
-
-    st.html(
-        """
-        </div>
-        """
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
     )
 
 
@@ -1319,7 +1350,6 @@ if st.session_state.results:
         ).sum()
     )
 
-
     inactive_count = int(
         (
             df["Operating Status"]
@@ -1329,7 +1359,6 @@ if st.session_state.results:
         ).sum()
     )
 
-
     carrier_count = int(
         (
             df["Broker/Carrier"]
@@ -1338,7 +1367,6 @@ if st.session_state.results:
             == "CARRIER"
         ).sum()
     )
-
 
     broker_count = int(
         (
@@ -1352,69 +1380,19 @@ if st.session_state.results:
 
     c1, c2, c3, c4 = st.columns(4)
 
-
-    c1.metric(
-        "Searched",
-        len(df),
-    )
-
-    c2.metric(
-        "Active",
-        active_count,
-    )
-
-    c3.metric(
-        "Carriers",
-        carrier_count,
-    )
-
-    c4.metric(
-        "Brokers",
-        broker_count,
-    )
+    c1.metric("Searched", len(df))
+    c2.metric("Active", active_count)
+    c3.metric("Carriers", carrier_count)
+    c4.metric("Brokers", broker_count)
 
 
     # =====================================================
-    # BADGES
-    # =====================================================
-
-    st.html(
-        f"""
-        <div style="
-            margin-top:15px;
-            margin-bottom:10px;
-        ">
-
-            <span class="badge badge-active">
-                ● Active {active_count}
-            </span>
-
-            <span class="badge badge-inactive">
-                ● Inactive {inactive_count}
-            </span>
-
-            <span class="badge badge-carrier">
-                ◆ Carriers {carrier_count}
-            </span>
-
-            <span class="badge badge-broker">
-                ◆ Brokers {broker_count}
-            </span>
-
-        </div>
-        """
-    )
-
-
-    # =====================================================
-    # TABLE COLORS
+    # COLORS
     # =====================================================
 
     def color_status(value):
 
-        value = str(
-            value
-        ).upper()
+        value = str(value).upper()
 
         if value == "ACTIVE":
 
@@ -1435,9 +1413,7 @@ if st.session_state.results:
 
     def color_type(value):
 
-        value = str(
-            value
-        ).upper()
+        value = str(value).upper()
 
         if value == "BROKER":
 
@@ -1480,10 +1456,9 @@ if st.session_state.results:
     )
 
 
-    st.html(
-        """
-        </div>
-        """
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
     )
 
 
@@ -1491,67 +1466,37 @@ if st.session_state.results:
     # EXPORT
     # =====================================================
 
-    st.html(
-        """
-        <div class="glass-card">
-
-            <div style="
-                font-size:1.25rem;
-                font-weight:750;
-                margin-bottom:5px;
-            ">
-                ⬇ Export Filtered Results
-            </div>
-
-            <div style="
-                color:#9da6c0;
-                font-size:0.9rem;
-            ">
-                Downloads contain only the results
-                currently selected by the filters.
-            </div>
-
-        </div>
-        """
+    st.markdown(
+        '<div class="glass-card">',
+        unsafe_allow_html=True,
     )
 
+    st.markdown(
+        "### ⬇ Export Filtered Results"
+    )
 
     download_col1, download_col2 = st.columns(2)
 
-
-    # =====================================================
-    # CSV
-    # =====================================================
-
-    csv_data = (
-        filtered_df
-        .to_csv(index=False)
-        .encode("utf-8")
-    )
-
+    csv_data = filtered_df.to_csv(
+        index=False
+    ).encode("utf-8")
 
     with download_col1:
 
         st.download_button(
-            "⬇ Download CSV",
+            "Download CSV",
             data=csv_data,
             file_name="mc_filtered_results.csv",
             mime="text/csv",
             use_container_width=True,
         )
 
-
-    # =====================================================
-    # EXCEL
-    # =====================================================
-
     excel_buffer = io.BytesIO()
-
 
     with pd.ExcelWriter(
         excel_buffer,
         engine="openpyxl",
-    ) as writer:
+    ):
 
         filtered_df.to_excel(
             writer,
@@ -1559,11 +1504,10 @@ if st.session_state.results:
             sheet_name="MC Results",
         )
 
-
     with download_col2:
 
         st.download_button(
-            "⬇ Download Excel",
+            "Download Excel",
             data=excel_buffer.getvalue(),
             file_name="mc_filtered_results.xlsx",
             mime=(
@@ -1572,6 +1516,11 @@ if st.session_state.results:
             ),
             use_container_width=True,
         )
+
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 
     # =====================================================
@@ -1585,34 +1534,4 @@ if st.session_state.results:
         ):
 
             for error in errors:
-
-                st.write(
-                    error
-                )
-
-
-# =========================================================
-# LOGOUT
-# =========================================================
-
-st.markdown(
-    "<br>",
-    unsafe_allow_html=True,
-)
-
-
-logout_col1, logout_col2, logout_col3 = st.columns(
-    [1, 1, 1]
-)
-
-
-with logout_col2:
-
-    if st.button(
-        "🔐 Sign Out",
-        use_container_width=True,
-    ):
-
-        logout_user()
-
-        st.rerun()
+                st.write(error)
