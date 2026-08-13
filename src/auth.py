@@ -1,236 +1,333 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import secrets
+import time
+
 import streamlit as st
-from argon2 import PasswordHasher
-from argon2.exceptions import (
-    InvalidHashError,
-    VerificationError,
-    VerifyMismatchError,
-)
-
-from src.database import (
-    create_user_record,
-    get_user,
-)
 
 
 # =========================================================
-# PASSWORD HASHER
+# SECURITY SETTINGS
 # =========================================================
 
-password_hasher = PasswordHasher()
+MAX_LOGIN_ATTEMPTS = 5
+LOCKOUT_SECONDS = 300
 
 
 # =========================================================
 # SESSION STATE
 # =========================================================
 
-def initialize_auth():
+def init_auth_state():
 
     defaults = {
         "authenticated": False,
-        "username": None,
-        "role": None,
+        "login_attempts": 0,
+        "login_locked_until": 0.0,
+        "session_token": "",
     }
 
     for key, value in defaults.items():
 
         if key not in st.session_state:
+
             st.session_state[key] = value
 
 
 # =========================================================
-# HASH PASSWORD
+# PASSWORD HASH
 # =========================================================
 
-def hash_password(
-    password: str,
-) -> str:
+def hash_password(password: str) -> str:
 
-    return password_hasher.hash(
+    return hashlib.sha256(
+        password.encode("utf-8")
+    ).hexdigest()
+
+
+# =========================================================
+# GET STORED PASSWORD HASH
+# =========================================================
+
+def get_password_hash() -> str:
+
+    try:
+
+        value = st.secrets.get(
+            "ADMIN_PASSWORD_HASH",
+            "",
+        )
+
+    except Exception:
+
+        value = ""
+
+    return str(value).strip()
+
+
+# =========================================================
+# CHECK PASSWORD
+# =========================================================
+
+def check_password(password: str) -> bool:
+
+    stored_hash = get_password_hash()
+
+    if not stored_hash:
+
+        return False
+
+    supplied_hash = hash_password(
         password
+    )
+
+    return hmac.compare_digest(
+        supplied_hash,
+        stored_hash,
     )
 
 
 # =========================================================
-# VERIFY PASSWORD
+# LOCKOUT
 # =========================================================
 
-def verify_password(
-    password_hash: str,
-    password: str,
-) -> bool:
+def is_locked() -> bool:
 
-    try:
-
-        return password_hasher.verify(
-            password_hash,
-            password,
+    locked_until = float(
+        st.session_state.get(
+            "login_locked_until",
+            0,
         )
+    )
 
-    except (
-        VerifyMismatchError,
-        VerificationError,
-        InvalidHashError,
-    ):
+    return time.time() < locked_until
 
-        return False
+
+def seconds_remaining() -> int:
+
+    remaining = (
+        float(
+            st.session_state.get(
+                "login_locked_until",
+                0,
+            )
+        )
+        - time.time()
+    )
+
+    return max(
+        0,
+        int(remaining),
+    )
 
 
 # =========================================================
 # LOGIN
 # =========================================================
 
-def login(
-    username: str,
-    password: str,
-) -> bool:
+def login_user(password: str) -> bool:
 
-    username = username.strip()
+    init_auth_state()
 
-    if not username or not password:
+    if is_locked():
+
         return False
 
-    user = get_user(username)
+    if check_password(password):
 
-    if not user:
-        return False
+        st.session_state.authenticated = True
 
-    if not user.get("active", False):
-        return False
+        st.session_state.login_attempts = 0
 
-    stored_hash = user.get(
-        "password_hash",
-        "",
-    )
+        st.session_state.login_locked_until = 0
 
-    if not verify_password(
-        stored_hash,
-        password,
+        st.session_state.session_token = (
+            secrets.token_urlsafe(32)
+        )
+
+        return True
+
+    st.session_state.login_attempts += 1
+
+    if (
+        st.session_state.login_attempts
+        >= MAX_LOGIN_ATTEMPTS
     ):
-        return False
 
-    st.session_state.authenticated = True
-    st.session_state.username = username
-    st.session_state.role = user.get(
-        "role",
-        "standard_user",
-    )
+        st.session_state.login_locked_until = (
+            time.time()
+            + LOCKOUT_SECONDS
+        )
 
-    return True
+        st.session_state.login_attempts = 0
+
+    return False
 
 
 # =========================================================
 # LOGOUT
 # =========================================================
 
-def logout():
+def logout_user():
 
     st.session_state.authenticated = False
-    st.session_state.username = None
-    st.session_state.role = None
 
-    # Clear search state too.
-    for key in (
-        "running",
-        "current_mc",
-        "results",
-        "start_mc",
-        "searched_count",
-    ):
+    st.session_state.session_token = ""
 
-        if key in st.session_state:
-
-            if key == "results":
-                st.session_state[key] = []
-
-            elif key == "searched_count":
-                st.session_state[key] = 0
-
-            else:
-                st.session_state[key] = (
-                    None
-                    if key == "current_mc"
-                    else ""
-                )
+    st.session_state.login_attempts = 0
 
 
 # =========================================================
-# ROLE CHECKS
+# AUTH CHECK
 # =========================================================
 
 def is_authenticated() -> bool:
 
+    init_auth_state()
+
     return bool(
-        st.session_state.get(
-            "authenticated",
-            False,
-        )
-    )
-
-
-def is_admin() -> bool:
-
-    return st.session_state.get(
-        "role"
-    ) in (
-        "master_admin",
-        "super_admin",
-    )
-
-
-def is_super_admin() -> bool:
-
-    return (
-        st.session_state.get(
-            "role"
-        )
-        == "super_admin"
+        st.session_state.authenticated
+        and st.session_state.session_token
     )
 
 
 # =========================================================
-# BOOTSTRAP ADMIN
+# LOGIN SCREEN
 # =========================================================
 
-def ensure_bootstrap_admin():
+def require_login():
 
-    try:
+    init_auth_state()
 
-        username = str(
-            st.secrets.get(
-                "ADMIN_USERNAME",
-                "",
+    if is_authenticated():
+
+        return True
+
+    st.markdown(
+        """
+        <style>
+
+        .login-card {
+            max-width: 480px;
+            margin: 10vh auto 0 auto;
+            padding: 42px;
+            border-radius: 30px;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    rgba(255,255,255,0.11),
+                    rgba(255,255,255,0.035)
+                );
+
+            border:
+                1px solid
+                rgba(255,255,255,0.14);
+
+            box-shadow:
+                0 30px 100px
+                rgba(0,0,0,0.55),
+
+                inset 0 1px 0
+                rgba(255,255,255,0.08);
+
+            backdrop-filter:
+                blur(30px);
+
+        }
+
+        .login-title {
+            font-size: 2.3rem;
+            font-weight: 800;
+            color: white;
+            text-align: center;
+        }
+
+        .login-subtitle {
+            text-align: center;
+            color: #9da6c0;
+            margin-bottom: 30px;
+        }
+
+        </style>
+
+        <div class="login-card">
+
+            <div class="login-title">
+                ✦ MC Search
+            </div>
+
+            <div class="login-subtitle">
+                Secure access required
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if is_locked():
+
+        st.error(
+            "Too many failed login attempts."
+        )
+
+        st.warning(
+            f"Try again in "
+            f"{seconds_remaining()} seconds."
+        )
+
+        st.stop()
+
+    password = st.text_input(
+        "Password",
+        type="password",
+        placeholder="Enter your password",
+    )
+
+    login_button = st.button(
+        "🔐 Sign In",
+        type="primary",
+        use_container_width=True,
+    )
+
+    if login_button:
+
+        if login_user(password):
+
+            st.success(
+                "Authenticated."
             )
-        ).strip()
 
-        password = str(
-            st.secrets.get(
-                "ADMIN_PASSWORD",
-                "",
+            time.sleep_short = 0
+
+            st.rerun()
+
+        else:
+
+            remaining_attempts = (
+                MAX_LOGIN_ATTEMPTS
+                - st.session_state.login_attempts
             )
-        )
 
-        if not username or not password:
-            return
+            if remaining_attempts > 0:
 
-        existing = get_user(username)
+                st.error(
+                    "Incorrect password."
+                )
 
-        if existing:
-            return
+                st.caption(
+                    f"{remaining_attempts} "
+                    "attempt(s) remaining."
+                )
 
-        password_hash = hash_password(
-            password
-        )
+            else:
 
-        create_user_record(
-            username=username,
-            password_hash=password_hash,
-            role="super_admin",
-        )
+                st.error(
+                    "Too many failed attempts. "
+                    "Login temporarily locked."
+                )
 
-    except Exception:
-        # Do not break the application if
-        # the optional bootstrap credentials
-        # haven't been configured yet.
-        pass
+    st.stop()
