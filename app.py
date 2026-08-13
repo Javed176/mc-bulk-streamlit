@@ -18,48 +18,14 @@ st.set_page_config(
 
 
 # =========================================================
-# CSS
-# =========================================================
-
-st.markdown(
-    """
-    <style>
-
-    .status-active {
-        color: #16a34a;
-        font-weight: 700;
-    }
-
-    .status-inactive {
-        color: #dc2626;
-        font-weight: 700;
-    }
-
-    .type-broker {
-        color: #7c3aed;
-        font-weight: 700;
-    }
-
-    .type-carrier {
-        color: #2563eb;
-        font-weight: 700;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# =========================================================
 # TITLE
 # =========================================================
 
 st.title("🚛 MC Bulk Search")
 
 st.write(
-    "Search FMCSA carrier and broker records "
-    "in bulk using MC numbers."
+    "MC → FMCSA DOT lookup → "
+    "DotSearch data extraction"
 )
 
 
@@ -67,10 +33,12 @@ st.write(
 # INPUT
 # =========================================================
 
-st.subheader("MC Numbers")
+st.subheader(
+    "Enter MC Numbers"
+)
 
 input_text = st.text_area(
-    "Enter MC numbers",
+    "MC Numbers",
     height=180,
     placeholder=(
         "1066434\n"
@@ -81,19 +49,15 @@ input_text = st.text_area(
 
 
 # =========================================================
-# SEARCH BUTTON
+# SEARCH
 # =========================================================
 
 search_button = st.button(
-    "🔎 Search FMCSA",
+    "🔎 Search",
     type="primary",
     use_container_width=True,
 )
 
-
-# =========================================================
-# SEARCH
-# =========================================================
 
 if search_button:
 
@@ -106,7 +70,6 @@ if search_button:
         st.stop()
 
 
-    # Split lines
     identifiers = [
         line.strip()
         for line in input_text.splitlines()
@@ -114,7 +77,6 @@ if search_button:
     ]
 
 
-    # Remove duplicates
     identifiers = list(
         dict.fromkeys(
             identifiers
@@ -123,8 +85,7 @@ if search_button:
 
 
     st.info(
-        f"Searching {len(identifiers):,} "
-        f"identifier(s)..."
+        f"Searching {len(identifiers):,} MC number(s)..."
     )
 
 
@@ -145,14 +106,12 @@ if search_button:
         )
 
         status_text.write(
-            f"Searching {current:,} "
-            f"of {total:,}..."
+            f"Searching {current:,} of {total:,}..." 
         )
 
 
     results = bulk_fetch(
         identifiers,
-        delay_seconds=0.5,
         progress_callback=update_progress,
     )
 
@@ -167,7 +126,7 @@ if search_button:
 
 
     # =====================================================
-    # RESULTS
+    # BUILD DATAFRAME
     # =====================================================
 
     rows = []
@@ -190,7 +149,7 @@ if search_button:
                 ),
 
                 "Broker/Carrier": result.get(
-                    "Type",
+                    "Broker/Carrier",
                     "",
                 ),
 
@@ -206,13 +165,25 @@ if search_button:
 
                 "Location": result.get(
                     "Location",
-                    "",
+                    "Not available",
+                ),
+
+                "Owner": result.get(
+                    "Owner",
+                    "Not available",
+                ),
+
+                "Number": result.get(
+                    "Number",
+                    "Not available",
                 ),
             }
         )
 
 
-        if result.get("_error"):
+        if result.get(
+            "_error"
+        ):
 
             errors.append(
                 result["_error"]
@@ -228,6 +199,8 @@ if search_button:
             "Operating Status",
             "Email Address",
             "Location",
+            "Owner",
+            "Number",
         ],
     )
 
@@ -238,28 +211,39 @@ if search_button:
 
     active_count = int(
         (
-            df["Operating Status"]
+            df[
+                "Operating Status"
+            ]
             == "ACTIVE"
         ).sum()
     )
 
+
     inactive_count = int(
         (
-            df["Operating Status"]
+            df[
+                "Operating Status"
+            ]
             == "INACTIVE"
         ).sum()
     )
 
+
     broker_count = int(
         (
-            df["Broker/Carrier"]
+            df[
+                "Broker/Carrier"
+            ]
             == "BROKER"
         ).sum()
     )
 
+
     carrier_count = int(
         (
-            df["Broker/Carrier"]
+            df[
+                "Broker/Carrier"
+            ]
             == "CARRIER"
         ).sum()
     )
@@ -292,29 +276,24 @@ if search_button:
 
 
     # =====================================================
-    # RESULTS TABLE
+    # COLOR STATUS
     # =====================================================
 
-    st.subheader(
-        "Results"
-    )
-
-
     def color_status(
-        value
+        value,
     ):
 
         if value == "ACTIVE":
 
             return (
-                "color: #16a34a; "
+                "color: #16a34a;"
                 "font-weight: 700;"
             )
 
         if value == "INACTIVE":
 
             return (
-                "color: #dc2626; "
+                "color: #dc2626;"
                 "font-weight: 700;"
             )
 
@@ -322,20 +301,20 @@ if search_button:
 
 
     def color_type(
-        value
+        value,
     ):
 
         if value == "BROKER":
 
             return (
-                "color: #7c3aed; "
+                "color: #7c3aed;"
                 "font-weight: 700;"
             )
 
         if value == "CARRIER":
 
             return (
-                "color: #2563eb; "
+                "color: #2563eb;"
                 "font-weight: 700;"
             )
 
@@ -359,6 +338,15 @@ if search_button:
     )
 
 
+    # =====================================================
+    # RESULTS
+    # =====================================================
+
+    st.subheader(
+        "Results"
+    )
+
+
     st.dataframe(
         styled_df,
         use_container_width=True,
@@ -367,7 +355,7 @@ if search_button:
 
 
     # =====================================================
-    # CSV DOWNLOAD
+    # CSV
     # =====================================================
 
     csv_data = df.to_csv(
@@ -378,7 +366,7 @@ if search_button:
 
 
     st.download_button(
-        label="⬇️ Download CSV",
+        "⬇️ Download CSV",
         data=csv_data,
         file_name="mc_results.csv",
         mime="text/csv",
@@ -387,7 +375,7 @@ if search_button:
 
 
     # =====================================================
-    # EXCEL DOWNLOAD
+    # EXCEL
     # =====================================================
 
     excel_buffer = io.BytesIO()
@@ -406,7 +394,7 @@ if search_button:
 
 
     st.download_button(
-        label="⬇️ Download Excel",
+        "⬇️ Download Excel",
         data=excel_buffer.getvalue(),
         file_name="mc_results.xlsx",
         mime=(
