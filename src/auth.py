@@ -11,7 +11,7 @@ from src.database import get_user
 
 
 # =========================================================
-# SECURITY 
+# SECURITY SETTINGS
 # =========================================================
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -51,128 +51,23 @@ def hash_password(password: str) -> str:
 
 
 # =========================================================
-# ADMIN FALLBACK
-#
-# This allows login using Streamlit Secrets even if the
-# Supabase users table is not configured correctly yet.
-#
-# Add:
-#
-# ADMIN_USERNAME = "admin"
-# ADMIN_PASSWORD_HASH = "your_sha256_hash"
-#
-# =========================================================
-
-def get_admin_username() -> str:
-
-    try:
-        return str(
-            st.secrets.get(
-                "ADMIN_USERNAME",
-                "admin",
-            )
-        ).strip()
-
-    except Exception:
-        return "admin"
-
-
-def get_admin_password_hash() -> str:
-
-    try:
-
-        return str(
-            st.secrets.get(
-                "ADMIN_PASSWORD_HASH",
-                "",
-            )
-        ).strip()
-
-    except Exception:
-        return ""
-
-
-# =========================================================
 # PASSWORD CHECK
 # =========================================================
 
 def verify_password(
-    username: str,
     password: str,
-) -> tuple[bool, str]:
+    stored_hash: str,
+) -> bool:
 
-    username = username.strip()
-    password = password.strip()
-
-    if not username or not password:
-        return False, ""
+    if not password or not stored_hash:
+        return False
 
     supplied_hash = hash_password(password)
 
-    # -----------------------------------------------------
-    # 1. Try Supabase user
-    # -----------------------------------------------------
-
-    try:
-
-        user = get_user(username)
-
-        if user:
-
-            # Inactive users cannot log in.
-            if not bool(
-                user.get(
-                    "active",
-                    True,
-                )
-            ):
-                return False, ""
-
-            stored_hash = str(
-                user.get(
-                    "password_hash",
-                    "",
-                )
-            ).strip()
-
-            if stored_hash and hmac.compare_digest(
-                supplied_hash,
-                stored_hash,
-            ):
-
-                role = str(
-                    user.get(
-                        "role",
-                        "user",
-                    )
-                ).strip().lower()
-
-                return True, role
-
-    except Exception:
-        # Do not crash the login page if Supabase
-        # is temporarily unavailable.
-        pass
-
-    # -----------------------------------------------------
-    # 2. Streamlit Secrets administrator fallback
-    # -----------------------------------------------------
-
-    admin_username = get_admin_username()
-    admin_hash = get_admin_password_hash()
-
-    if (
-        username == admin_username
-        and admin_hash
-        and hmac.compare_digest(
-            supplied_hash,
-            admin_hash,
-        )
-    ):
-
-        return True, "admin"
-
-    return False, ""
+    return hmac.compare_digest(
+        supplied_hash,
+        str(stored_hash).strip(),
+    )
 
 
 # =========================================================
@@ -210,10 +105,10 @@ def seconds_remaining() -> int:
 
 
 # =========================================================
-# LOGIN
+# AUTHENTICATE USER
 # =========================================================
 
-def login_user(
+def authenticate_user(
     username: str,
     password: str,
 ) -> bool:
@@ -223,72 +118,108 @@ def login_user(
     if is_locked():
         return False
 
-    valid, role = verify_password(
-        username,
-        password,
+    username = str(username).strip()
+
+    if not username or not password:
+        return False
+
+    try:
+
+        user = get_user(username)
+
+    except Exception:
+
+        return False
+
+    if not user:
+        _failed_login()
+        return False
+
+    # -----------------------------------------------------
+    # Check active status
+    # -----------------------------------------------------
+
+    active = user.get(
+        "active",
+        True,
     )
 
-    if valid:
-
-        # IMPORTANT:
-        # These are NOT widget keys, so it is safe to
-        # update them here before rerunning.
-        st.session_state["authenticated"] = True
-
-        st.session_state["username"] = (
-            username.strip()
-        )
-
-        st.session_state["role"] = role or "user"
-
-        st.session_state["session_token"] = (
-            secrets.token_urlsafe(32)
-        )
-
-        st.session_state["login_attempts"] = 0
-
-        st.session_state["login_locked_until"] = 0.0
-
-        return True
+    if active is False:
+        _failed_login()
+        return False
 
     # -----------------------------------------------------
-    # Failed login
+    # Verify password
     # -----------------------------------------------------
 
-    st.session_state["login_attempts"] += 1
+    stored_hash = user.get(
+        "password_hash",
+        "",
+    )
 
-    if (
-        st.session_state["login_attempts"]
-        >= MAX_LOGIN_ATTEMPTS
+    if not verify_password(
+        password,
+        stored_hash,
     ):
 
-        st.session_state["login_locked_until"] = (
+        _failed_login()
+        return False
+
+    # -----------------------------------------------------
+    # SUCCESS
+    # -----------------------------------------------------
+
+    st.session_state.authenticated = True
+
+    st.session_state.username = (
+        username
+    )
+
+    st.session_state.role = str(
+        user.get(
+            "role",
+            "user",
+        )
+    ).lower()
+
+    st.session_state.session_token = (
+        secrets.token_urlsafe(32)
+    )
+
+    st.session_state.login_attempts = 0
+
+    st.session_state.login_locked_until = 0.0
+
+    return True
+
+
+# =========================================================
+# FAILED LOGIN
+# =========================================================
+
+def _failed_login():
+
+    attempts = int(
+        st.session_state.get(
+            "login_attempts",
+            0,
+        )
+    )
+
+    attempts += 1
+
+    if attempts >= MAX_LOGIN_ATTEMPTS:
+
+        st.session_state.login_locked_until = (
             time.time()
             + LOCKOUT_SECONDS
         )
 
-        st.session_state["login_attempts"] = 0
+        st.session_state.login_attempts = 0
 
-    return False
+    else:
 
-
-# =========================================================
-# LOGOUT
-# =========================================================
-
-def logout_user():
-
-    st.session_state["authenticated"] = False
-
-    st.session_state["username"] = ""
-
-    st.session_state["role"] = ""
-
-    st.session_state["session_token"] = ""
-
-    st.session_state["login_attempts"] = 0
-
-    st.session_state["login_locked_until"] = 0.0
+        st.session_state.login_attempts = attempts
 
 
 # =========================================================
@@ -303,6 +234,10 @@ def is_authenticated() -> bool:
         st.session_state.get(
             "authenticated",
             False,
+        )
+        and st.session_state.get(
+            "username",
+            "",
         )
         and st.session_state.get(
             "session_token",
@@ -321,33 +256,66 @@ def is_admin() -> bool:
 
     return bool(
         is_authenticated()
-        and str(
-            st.session_state.get(
-                "role",
-                "",
-            )
+        and st.session_state.get(
+            "role",
+            "",
         ).lower()
         == "admin"
     )
 
 
 # =========================================================
-# LOGIN PAGE CSS
+# LOGOUT
 # =========================================================
 
-def login_css():
+def logout_user():
+
+    st.session_state.authenticated = False
+    st.session_state.username = ""
+    st.session_state.role = ""
+    st.session_state.session_token = ""
+    st.session_state.login_attempts = 0
+    st.session_state.login_locked_until = 0.0
+
+
+# =========================================================
+# LOGIN CSS
+# =========================================================
+
+def _login_css():
 
     st.markdown(
         """
 <style>
 
-.login-page {
-    max-width: 520px;
-    margin: 9vh auto 0 auto;
+.stApp {
+    background:
+        radial-gradient(
+            circle at 20% 20%,
+            rgba(90,110,255,0.18),
+            transparent 35%
+        ),
+        radial-gradient(
+            circle at 80% 20%,
+            rgba(180,70,255,0.15),
+            transparent 35%
+        ),
+        linear-gradient(
+            135deg,
+            #05060a,
+            #0b0d14,
+            #05060a
+        );
 }
 
+/* LOGIN CARD */
+
 .login-card {
+    max-width: 520px;
+    margin: 9vh auto 25px auto;
+
     padding: 42px;
+
     border-radius: 30px;
 
     background:
@@ -370,45 +338,30 @@ def login_css():
     text-align: center;
 }
 
+/* LOCK */
+
 .login-lock {
-    width: 72px;
-    height: 72px;
+    font-size: 3.2rem;
+    margin-bottom: 10px;
 
-    margin: 0 auto 20px auto;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    border-radius: 22px;
-
-    font-size: 2rem;
-
-    background:
-        linear-gradient(
-            135deg,
-            rgba(100,120,255,0.20),
-            rgba(180,70,255,0.15)
+    filter:
+        drop-shadow(
+            0 0 18px
+            rgba(120,140,255,0.65)
         );
-
-    border:
-        1px solid rgba(130,150,255,0.25);
-
-    box-shadow:
-        0 0 35px rgba(100,110,255,0.18),
-        inset 0 1px 0 rgba(255,255,255,0.12);
 }
+
+/* TITLE */
 
 .login-title {
     font-size: 2.4rem;
-    font-weight: 800;
-    letter-spacing: -0.04em;
+    font-weight: 850;
 
     background:
         linear-gradient(
             90deg,
             #ffffff,
-            #b9c5ff,
+            #b8c4ff,
             #ffffff
         );
 
@@ -416,12 +369,61 @@ def login_css():
     -webkit-text-fill-color: transparent;
 }
 
-.login-subtitle {
-    margin-top: 8px;
-    margin-bottom: 30px;
+/* SUBTITLE */
 
+.login-subtitle {
     color: #9da6c0;
-    font-size: 0.95rem;
+    margin-top: 7px;
+    margin-bottom: 5px;
+}
+
+/* INPUT */
+
+div[data-baseweb="input"] {
+    border-radius: 16px !important;
+
+    background:
+        rgba(255,255,255,0.055) !important;
+
+    border:
+        1px solid rgba(255,255,255,0.13) !important;
+}
+
+div[data-baseweb="input"]:focus-within {
+    border-color:
+        rgba(110,135,255,0.9) !important;
+
+    box-shadow:
+        0 0 0 3px rgba(100,125,255,0.12),
+        0 0 30px rgba(80,100,255,0.18);
+}
+
+input {
+    color: white !important;
+}
+
+/* BUTTON */
+
+.stButton > button {
+    min-height: 52px;
+
+    border-radius: 17px !important;
+
+    font-weight: 750 !important;
+
+    transition:
+        transform .2s ease,
+        box-shadow .2s ease;
+}
+
+.stButton > button:hover {
+    transform:
+        translateY(-2px)
+        scale(1.01);
+
+    box-shadow:
+        0 12px 35px
+        rgba(90,110,255,0.3);
 }
 
 </style>
@@ -431,41 +433,36 @@ def login_css():
 
 
 # =========================================================
-# LOGIN SCREEN
+# LOGIN PAGE
 # =========================================================
 
 def require_login() -> bool:
 
     init_auth_state()
 
-    # Already authenticated.
     if is_authenticated():
         return True
 
-    login_css()
+    _login_css()
 
     # -----------------------------------------------------
-    # Header
+    # CARD
     # -----------------------------------------------------
 
     st.markdown(
         """
-<div class="login-page">
+<div class="login-card">
 
-    <div class="login-card">
+    <div class="login-lock">
+        🔐
+    </div>
 
-        <div class="login-lock">
-            🔐
-        </div>
+    <div class="login-title">
+        ✦ MC Search
+    </div>
 
-        <div class="login-title">
-            ✦ MC Search
-        </div>
-
-        <div class="login-subtitle">
-            Secure administrator access
-        </div>
-
+    <div class="login-subtitle">
+        Secure administrator access
     </div>
 
 </div>
@@ -474,7 +471,7 @@ def require_login() -> bool:
     )
 
     # -----------------------------------------------------
-    # Lockout
+    # LOCKED
     # -----------------------------------------------------
 
     if is_locked():
@@ -493,26 +490,25 @@ def require_login() -> bool:
     # -----------------------------------------------------
     # LOGIN FORM
     #
-    # Using a form prevents the username/password widgets
-    # from being manipulated after they are created.
+    # IMPORTANT:
+    # We do NOT modify username/password widget
+    # state after these widgets are created.
     # -----------------------------------------------------
 
     with st.form(
-        "login_form",
+        "administrator_login",
         clear_on_submit=False,
     ):
 
         username = st.text_input(
             "Username",
-            placeholder="Enter username",
-            key="login_username_input",
+            placeholder="Enter administrator username",
         )
 
         password = st.text_input(
             "Password",
             type="password",
-            placeholder="Enter password",
-            key="login_password_input",
+            placeholder="Enter administrator password",
         )
 
         submitted = st.form_submit_button(
@@ -522,40 +518,21 @@ def require_login() -> bool:
         )
 
     # -----------------------------------------------------
-    # LOGIN ATTEMPT
+    # LOGIN PROCESS
     # -----------------------------------------------------
 
     if submitted:
 
-        username_clean = (
-            str(username)
-            .strip()
-        )
-
-        if not username_clean or not password:
-
-            st.error(
-                "Please enter both username and password."
-            )
-
-        elif login_user(
-            username_clean,
+        if authenticate_user(
+            username,
             password,
         ):
-
-            # DO NOT clear login_username_input or
-            # login_password_input here.
-            #
-            # They are widget-owned keys. Changing them
-            # after rendering can cause StreamlitAPIException.
-            #
-            # Authentication state uses separate keys.
 
             st.success(
                 "✓ Authentication successful."
             )
 
-            time.sleep(0.25)
+            time.sleep(0.35)
 
             st.rerun()
 
@@ -565,16 +542,18 @@ def require_login() -> bool:
 
                 st.error(
                     "🔒 Too many failed attempts. "
-                    f"Try again in {seconds_remaining()} seconds."
+                    "Login temporarily locked."
                 )
 
             else:
 
                 remaining = (
                     MAX_LOGIN_ATTEMPTS
-                    - st.session_state.get(
-                        "login_attempts",
-                        0,
+                    - int(
+                        st.session_state.get(
+                            "login_attempts",
+                            0,
+                        )
                     )
                 )
 
@@ -585,11 +564,8 @@ def require_login() -> bool:
                 if remaining > 0:
 
                     st.caption(
-                        f"{remaining} attempt(s) remaining."
+                        f"{remaining} "
+                        f"attempt(s) remaining."
                     )
-
-    # -----------------------------------------------------
-    # STOP SCRIPT
-    # -----------------------------------------------------
 
     st.stop()
