@@ -36,42 +36,50 @@ def init_auth_state():
 
 
 # =========================================================
-# READ SECRET
-# Supports both:
-#
-# ADMIN_USERNAME = "admin"
-#
-# and:
-#
-# [auth]
-# username = "admin"
+# SECRET READER
 # =========================================================
 
-def get_secret(name: str, nested_name: str = "") -> str:
+def get_secret(
+    name: str,
+    nested_name: str = "",
+) -> str:
 
     try:
 
+        # ---------------------------------------------
         # Top-level secret
-        value = st.secrets.get(name, "")
+        # ---------------------------------------------
+
+        value = st.secrets.get(
+            name,
+            "",
+        )
 
         if value:
+
             return str(value).strip()
 
+        # ---------------------------------------------
         # Optional [auth] section
+        # ---------------------------------------------
+
         if "auth" in st.secrets:
 
             auth_section = st.secrets["auth"]
 
             if nested_name:
+
                 value = auth_section.get(
                     nested_name,
                     "",
                 )
 
                 if value:
+
                     return str(value).strip()
 
     except Exception:
+
         pass
 
     return ""
@@ -93,7 +101,9 @@ def get_admin_username() -> str:
 # PASSWORD HASH
 # =========================================================
 
-def hash_password(password: str) -> str:
+def hash_password(
+    password: str,
+) -> str:
 
     return hashlib.sha256(
         password.encode("utf-8")
@@ -101,7 +111,7 @@ def hash_password(password: str) -> str:
 
 
 # =========================================================
-# STORED PASSWORD HASH
+# PASSWORD HASH FROM SECRETS
 # =========================================================
 
 def get_password_hash() -> str:
@@ -113,13 +123,10 @@ def get_password_hash() -> str:
 
 
 # =========================================================
-# OPTIONAL DEVELOPMENT PASSWORD
+# OPTIONAL PLAIN PASSWORD
 #
-# This also allows:
-#
-# ADMIN_PASSWORD = "your-password"
-#
-# BUT ADMIN_PASSWORD_HASH is preferred.
+# Useful for initial setup.
+# Hash is preferred for production.
 # =========================================================
 
 def get_plain_password() -> str:
@@ -131,14 +138,39 @@ def get_plain_password() -> str:
 
 
 # =========================================================
+# CHECK USERNAME
+# =========================================================
+
+def check_username(
+    username: str,
+) -> bool:
+
+    expected = get_admin_username()
+
+    if not expected:
+
+        return False
+
+    return hmac.compare_digest(
+        username.strip(),
+        expected,
+    )
+
+
+# =========================================================
 # CHECK PASSWORD
 # =========================================================
 
-def check_password(password: str) -> bool:
+def check_password(
+    password: str,
+) -> bool:
 
     stored_hash = get_password_hash()
 
-    # Preferred secure method
+    # ---------------------------------------------
+    # Preferred method
+    # ---------------------------------------------
+
     if stored_hash:
 
         supplied_hash = hash_password(
@@ -150,7 +182,10 @@ def check_password(password: str) -> bool:
             stored_hash,
         )
 
-    # Compatibility fallback
+    # ---------------------------------------------
+    # Temporary plain password compatibility
+    # ---------------------------------------------
+
     plain_password = get_plain_password()
 
     if plain_password:
@@ -164,24 +199,7 @@ def check_password(password: str) -> bool:
 
 
 # =========================================================
-# CHECK USERNAME
-# =========================================================
-
-def check_username(username: str) -> bool:
-
-    expected_username = get_admin_username()
-
-    if not expected_username:
-        return False
-
-    return hmac.compare_digest(
-        username.strip(),
-        expected_username,
-    )
-
-
-# =========================================================
-# CHECK COMPLETE LOGIN
+# CHECK BOTH CREDENTIALS
 # =========================================================
 
 def check_credentials(
@@ -189,15 +207,18 @@ def check_credentials(
     password: str,
 ) -> bool:
 
-    username_ok = check_username(
+    username_valid = check_username(
         username
     )
 
-    password_ok = check_password(
+    password_valid = check_password(
         password
     )
 
-    return username_ok and password_ok
+    return (
+        username_valid
+        and password_valid
+    )
 
 
 # =========================================================
@@ -218,13 +239,15 @@ def is_locked() -> bool:
 
 def seconds_remaining() -> int:
 
-    remaining = (
-        float(
-            st.session_state.get(
-                "login_locked_until",
-                0,
-            )
+    locked_until = float(
+        st.session_state.get(
+            "login_locked_until",
+            0,
         )
+    )
+
+    remaining = (
+        locked_until
         - time.time()
     )
 
@@ -245,8 +268,17 @@ def login_user(
 
     init_auth_state()
 
+    # ---------------------------------------------
+    # Already locked
+    # ---------------------------------------------
+
     if is_locked():
+
         return False
+
+    # ---------------------------------------------
+    # Correct credentials
+    # ---------------------------------------------
 
     if check_credentials(
         username,
@@ -257,15 +289,19 @@ def login_user(
 
         st.session_state.login_attempts = 0
 
-        st.session_state.login_locked_until = 0
+        st.session_state.login_locked_until = 0.0
 
+        # Random session token
         st.session_state.session_token = (
             secrets.token_urlsafe(32)
         )
 
         return True
 
+    # ---------------------------------------------
     # Failed login
+    # ---------------------------------------------
+
     st.session_state.login_attempts += 1
 
     if (
@@ -295,11 +331,11 @@ def logout_user():
 
     st.session_state.login_attempts = 0
 
-    st.session_state.login_locked_until = 0
+    st.session_state.login_locked_until = 0.0
 
 
 # =========================================================
-# AUTH CHECK
+# AUTHENTICATION CHECK
 # =========================================================
 
 def is_authenticated() -> bool:
@@ -320,105 +356,120 @@ def require_login():
 
     init_auth_state()
 
-    # Already authenticated
+    # =====================================================
+    # ALREADY LOGGED IN
+    # =====================================================
+
     if is_authenticated():
+
         return True
 
-    # -----------------------------------------------------
-    # LOGIN PAGE CSS
-    # -----------------------------------------------------
+    # =====================================================
+    # PAGE CSS
+    # =====================================================
 
     st.markdown(
         """
-        <style>
+<style>
 
-        .login-wrapper {
-            max-width: 520px;
-            margin: 8vh auto 0 auto;
-        }
+.login-wrapper {
+    width: 100%;
+    max-width: 520px;
+    margin: 7vh auto 0 auto;
+}
 
-        .login-card {
-            padding: 42px 42px 34px 42px;
-            border-radius: 28px;
+.login-card {
+    padding: 38px 35px 34px 35px;
+    border-radius: 28px;
 
-            background:
-                linear-gradient(
-                    135deg,
-                    rgba(40,48,70,0.96),
-                    rgba(25,30,45,0.96)
-                );
+    background:
+        linear-gradient(
+            135deg,
+            rgba(38,45,65,0.98),
+            rgba(23,28,42,0.98)
+        );
 
-            border: 1px solid
-                rgba(255,255,255,0.16);
+    border:
+        1px solid
+        rgba(255,255,255,0.15);
 
-            box-shadow:
-                0 30px 90px
-                rgba(0,0,0,0.55),
+    box-shadow:
+        0 30px 90px
+        rgba(0,0,0,0.55),
 
-                inset 0 1px 0
-                rgba(255,255,255,0.08);
+        inset 0 1px 0
+        rgba(255,255,255,0.08);
 
-            text-align: center;
-        }
+    text-align: center;
+}
 
-        .login-lock {
-            font-size: 3.8rem;
-            margin-bottom: 8px;
-            filter:
-                drop-shadow(
-                    0 0 18px
-                    rgba(80,120,255,0.55)
-                );
-        }
+.login-lock {
+    font-size: 3.6rem;
+    line-height: 1;
+    margin-bottom: 15px;
 
-        .login-title {
-            font-size: 2.1rem;
-            font-weight: 800;
-            color: #cbd5ff;
-        }
+    filter:
+        drop-shadow(
+            0 0 20px
+            rgba(100,130,255,0.55)
+        );
+}
 
-        .login-subtitle {
-            margin-top: 8px;
-            margin-bottom: 28px;
-            color: #9da6c0;
-            font-size: 0.95rem;
-        }
+.login-title {
+    font-size: 2.15rem;
+    font-weight: 800;
 
-        .login-footer {
-            text-align: center;
-            color: #68718a;
-            margin-top: 22px;
-            font-size: 0.82rem;
-        }
+    color: #cbd5ff;
 
-        </style>
+    letter-spacing: -0.5px;
+}
 
-        <div class="login-wrapper">
+.login-subtitle {
+    margin-top: 9px;
 
-            <div class="login-card">
+    color: #9da6c0;
 
-                <div class="login-lock">
-                    🔐
-                </div>
+    font-size: 0.95rem;
+}
 
-                <div class="login-title">
-                    ✦ MC Search
-                </div>
+.login-footer {
+    text-align: center;
 
-                <div class="login-subtitle">
-                    Secure administrator access
-                </div>
+    margin-top: 22px;
 
-            </div>
+    color: #68718a;
 
+    font-size: 0.82rem;
+}
+
+</style>
+
+<div class="login-wrapper">
+
+    <div class="login-card">
+
+        <div class="login-lock">
+            🔐
         </div>
+
+        <div class="login-title">
+            ✦ MC Search
+        </div>
+
+        <div class="login-subtitle">
+            Secure administrator access
+        </div>
+
+    </div>
+
+</div>
         """,
         unsafe_allow_html=True,
     )
 
-    # -----------------------------------------------------
+    # =====================================================
     # LOCKOUT
-    # -----------------------------------------------------
+    # =====================================================
 
     if is_locked():
 
@@ -427,15 +478,15 @@ def require_login():
         )
 
         st.warning(
-            f"Try again in "
+            "Try again in "
             f"{seconds_remaining()} seconds."
         )
 
         st.stop()
 
-    # -----------------------------------------------------
+    # =====================================================
     # USERNAME
-    # -----------------------------------------------------
+    # =====================================================
 
     username = st.text_input(
         "Username",
@@ -443,9 +494,9 @@ def require_login():
         key="login_username",
     )
 
-    # -----------------------------------------------------
+    # =====================================================
     # PASSWORD
-    # -----------------------------------------------------
+    # =====================================================
 
     password = st.text_input(
         "Password",
@@ -454,9 +505,9 @@ def require_login():
         key="login_password",
     )
 
-    # -----------------------------------------------------
-    # LOGIN BUTTON
-    # -----------------------------------------------------
+    # =====================================================
+    # SIGN IN
+    # =====================================================
 
     login_button = st.button(
         "🔐 Sign In",
@@ -466,53 +517,79 @@ def require_login():
 
     if login_button:
 
+        # ---------------------------------------------
+        # Authenticate
+        # ---------------------------------------------
+
         if login_user(
             username,
             password,
         ):
 
-            st.success(
-                "✓ Authentication successful."
-            )
-
-            # Clear login fields
-            st.session_state.login_username = ""
-            st.session_state.login_password = ""
+            # IMPORTANT:
+            #
+            # DO NOT modify:
+            #
+            # st.session_state.login_username
+            # st.session_state.login_password
+            #
+            # after their widgets have been created.
+            #
+            # That causes the StreamlitAPIException
+            # you were getting.
 
             st.rerun()
 
+        # ---------------------------------------------
+        # Failed login
+        # ---------------------------------------------
+
         else:
 
-            remaining_attempts = (
-                MAX_LOGIN_ATTEMPTS
-                - st.session_state.login_attempts
-            )
+            if is_locked():
 
-            if remaining_attempts > 0:
+                st.error(
+                    "🔒 Too many failed attempts."
+                )
+
+                st.warning(
+                    "Login locked for "
+                    f"{LOCKOUT_SECONDS // 60} minutes."
+                )
+
+            else:
+
+                remaining = (
+                    MAX_LOGIN_ATTEMPTS
+                    - st.session_state.login_attempts
+                )
 
                 st.error(
                     "Invalid username or password."
                 )
 
-                st.caption(
-                    f"{remaining_attempts} "
-                    "attempt(s) remaining."
-                )
+                if remaining > 0:
 
-            else:
+                    st.caption(
+                        f"{remaining} "
+                        "attempt(s) remaining."
+                    )
 
-                st.error(
-                    "🔒 Too many failed attempts. "
-                    "Login temporarily locked."
-                )
+    # =====================================================
+    # FOOTER
+    # =====================================================
 
     st.markdown(
         """
-        <div class="login-footer">
-            🔐 Protected MC Search system
-        </div>
+<div class="login-footer">
+    🔐 Protected MC Search system
+</div>
         """,
         unsafe_allow_html=True,
     )
+
+    # =====================================================
+    # STOP APP HERE
+    # =====================================================
 
     st.stop()
