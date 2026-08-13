@@ -33,15 +33,11 @@ def log_action(
         insert_audit(
             username=username,
             action=action,
-            mc_number=str(
-                mc_number
-            ),
+            mc_number=str(mc_number),
             details=details,
         )
 
     except Exception:
-        # Audit failure should not destroy
-        # the user's current search.
         pass
 
 
@@ -76,6 +72,7 @@ def audit_dataframe(
     )
 
     if not rows:
+
         return pd.DataFrame(
             columns=[
                 "Date/Time",
