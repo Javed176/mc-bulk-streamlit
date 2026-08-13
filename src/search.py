@@ -9,53 +9,45 @@ import streamlit as st
 
 
 # =========================================================
-# FMCSA API SETTINGS
+# FMCSA API
 # =========================================================
 
-FMCSA_API_BASE = (
-    "https://mobile.fmcsa.dot.gov/qc/services"
-)
+FMCSA_API_BASE = "https://mobile.fmcsa.dot.gov/qc/services"
 
 DEFAULT_TIMEOUT = 30
 
 
 # =========================================================
-# 🔑 YOUR API KEY
-# =========================================================
-#
-# DO NOT PUT YOUR REAL KEY DIRECTLY IN THIS FILE.
-#
-# Put it in:
-#
-# Streamlit Cloud
-# → Your App
-# → Settings
-# → Secrets
-#
-# Add:
-#
-# FMCSA_WEB_KEY = "YOUR_REAL_KEY"
-#
+# GET FMCSA API KEY
 # =========================================================
 
 def get_fmcsa_web_key() -> str:
+    """
+    Reads the FMCSA WebKey from Streamlit Secrets.
+
+    Streamlit Cloud:
+        Manage app
+        -> Settings
+        -> Secrets
+
+    Add:
+
+        FMCSA_WEB_KEY = "YOUR_KEY"
+    """
 
     try:
-
         key = st.secrets.get(
             "FMCSA_WEB_KEY",
             "",
         )
-
     except Exception:
-
         key = ""
 
     return str(key).strip()
 
 
 # =========================================================
-# NORMALIZE IDENTIFIER
+# NORMALIZE INPUT
 # =========================================================
 
 def normalize_identifier(
@@ -77,11 +69,8 @@ def classify_identifier(
     value: str,
 ) -> str:
 
-    compact = normalize_identifier(
-        value
-    )
+    compact = normalize_identifier(value)
 
-    # Plain numeric input = MC
     if compact.isdigit():
         return "MC"
 
@@ -111,9 +100,7 @@ def remove_prefix(
     value: str,
 ) -> str:
 
-    value = normalize_identifier(
-        value
-    )
+    value = normalize_identifier(value)
 
     for prefix in (
         "USDOT",
@@ -124,30 +111,9 @@ def remove_prefix(
     ):
 
         if value.startswith(prefix):
-
-            return value[
-                len(prefix):
-            ]
+            return value[len(prefix):]
 
     return value
-
-
-# =========================================================
-# DOTSEARCH URL
-# =========================================================
-
-def dotsearch_url(
-    dot_number: str,
-) -> str:
-
-    dot = remove_prefix(
-        dot_number
-    )
-
-    return (
-        "https://www.dotsearch.io/dot/"
-        + dot
-    )
 
 
 # =========================================================
@@ -159,9 +125,6 @@ def fmcsa_get(
     params: Optional[dict] = None,
     timeout: int = DEFAULT_TIMEOUT,
 ):
-    """
-    Make an authenticated FMCSA QCMobile API request.
-    """
 
     web_key = get_fmcsa_web_key()
 
@@ -172,35 +135,25 @@ def fmcsa_get(
             "Add FMCSA_WEB_KEY to Streamlit Secrets."
         )
 
-    url = (
-        FMCSA_API_BASE
-        + endpoint
-    )
+    url = FMCSA_API_BASE + endpoint
 
     request_params = {}
 
     if params:
-        request_params.update(
-            params
-        )
+        request_params.update(params)
 
-    request_params["webKey"] = (
-        web_key
-    )
+    request_params["webKey"] = web_key
 
     response = requests.get(
         url,
         params=request_params,
         timeout=timeout,
         headers={
-            "User-Agent": (
-                "MC-Bulk-Streamlit/1.0"
-            ),
+            "User-Agent": "MC-Bulk-Streamlit/1.0",
             "Accept": "application/json",
         },
     )
 
-    # Authentication error
     if response.status_code == 401:
 
         raise RuntimeError(
@@ -208,59 +161,29 @@ def fmcsa_get(
             "Check your WebKey."
         )
 
-    # Not found
     if response.status_code == 404:
-
         return None
 
     response.raise_for_status()
 
     try:
-
         return response.json()
 
     except ValueError:
 
         raise RuntimeError(
-            "FMCSA returned a response "
-            "that was not valid JSON."
+            "FMCSA returned an invalid JSON response."
         )
 
 
 # =========================================================
-# FIND FIRST DICT
-# =========================================================
-
-def find_first_dict(
-    data,
-) -> dict:
-
-    if isinstance(data, dict):
-
-        return data
-
-    if isinstance(data, list):
-
-        for item in data:
-
-            if isinstance(item, dict):
-
-                return item
-
-    return {}
-
-
-# =========================================================
-# FIND VALUE RECURSIVELY
+# FIND VALUE IN NESTED JSON
 # =========================================================
 
 def find_value(
     data,
     possible_keys,
 ):
-    """
-    Search nested FMCSA JSON for a value.
-    """
 
     if isinstance(data, dict):
 
@@ -282,13 +205,9 @@ def find_value(
                     .lower()
                 )
 
-                if (
-                    normalized_key
-                    == normalized_wanted
-                ):
+                if normalized_key == normalized_wanted:
 
                     if value is not None:
-
                         return value
 
             result = find_value(
@@ -297,7 +216,6 @@ def find_value(
             )
 
             if result is not None:
-
                 return result
 
     elif isinstance(data, list):
@@ -310,235 +228,290 @@ def find_value(
             )
 
             if result is not None:
-
                 return result
 
     return None
 
 
 # =========================================================
-# FLATTEN BASIC CARRIER DATA
+# FIND ALL VALUES
 # =========================================================
 
-def parse_carrier_data(
+def find_values(
     data,
-    input_id: str,
-) -> Dict[str, str]:
+    possible_keys,
+):
+
+    found = []
+
+    if isinstance(data, dict):
+
+        for key, value in data.items():
+
+            normalized_key = (
+                str(key)
+                .replace("_", "")
+                .replace("-", "")
+                .lower()
+            )
+
+            for wanted in possible_keys:
+
+                normalized_wanted = (
+                    wanted
+                    .replace("_", "")
+                    .replace("-", "")
+                    .lower()
+                )
+
+                if normalized_key == normalized_wanted:
+
+                    if value is not None:
+                        found.append(value)
+
+            found.extend(
+                find_values(
+                    value,
+                    possible_keys,
+                )
+            )
+
+    elif isinstance(data, list):
+
+        for item in data:
+
+            found.extend(
+                find_values(
+                    item,
+                    possible_keys,
+                )
+            )
+
+    return found
+
+
+# =========================================================
+# DETERMINE BROKER / CARRIER
+# =========================================================
+
+def determine_business_type(
+    data,
+) -> str:
     """
-    Convert FMCSA JSON into the columns
-    used by the Streamlit app.
+    Determine whether the entity is primarily
+    a BROKER or CARRIER.
+
+    We look at authority information returned
+    by FMCSA.
+
+    If broker authority is active/present and
+    carrier authority is not present, return BROKER.
+
+    Otherwise return CARRIER.
     """
 
-    result = {
-
-        "input_id": input_id,
-
-        "status": "FOUND",
-
-        "legal_name": "",
-
-        "dba_name": "",
-
-        "dot_number": "",
-
-        "mc_number": "",
-
-        "entity_type": "",
-
-        "usdot_status": "",
-
-        "out_of_service_date": "",
-
-        "operating_authority_status": "",
-
-        "physical_address": "",
-
-        "mailing_address": "",
-
-        "phone": "",
-
-        "power_units": "",
-
-        "drivers": "",
-
-        "mcs150_form_date": "",
-
-        "mcs150_mileage": "",
-
-        "safer_url": "",
-
-        "dotsearch_url": "",
-
-        "error": "",
-    }
-
-
-    # -----------------------------------------------------
-    # DOT NUMBER
-    # -----------------------------------------------------
-
-    value = find_value(
+    # Search possible broker fields
+    broker_values = find_values(
         data,
         [
-            "dotNumber",
-            "USDOTNumber",
-            "usdotNumber",
+            "brokerAuthority",
+            "broker",
+            "brokerStatus",
+            "brokerAuthorityStatus",
         ],
     )
 
-    if value is not None:
-
-        result["dot_number"] = str(
-            value
-        )
-
-
-    # -----------------------------------------------------
-    # MC NUMBER
-    # -----------------------------------------------------
-
-    value = find_value(
+    # Search carrier/common/contract fields
+    carrier_values = find_values(
         data,
         [
-            "mcNumber",
-            "MCNumber",
-            "docketNumber",
+            "commonAuthority",
+            "contractAuthority",
+            "commonStatus",
+            "contractStatus",
+            "carrierAuthority",
+            "carrierStatus",
         ],
     )
 
-    if value is not None:
-
-        result["mc_number"] = str(
-            value
-        )
-
-
-    # -----------------------------------------------------
-    # LEGAL NAME
-    # -----------------------------------------------------
-
-    value = find_value(
-        data,
-        [
-            "legalName",
-            "LegalName",
-        ],
+    broker_text = " ".join(
+        str(x).upper()
+        for x in broker_values
     )
 
-    if value is not None:
-
-        result["legal_name"] = str(
-            value
-        )
-
-
-    # -----------------------------------------------------
-    # DBA NAME
-    # -----------------------------------------------------
-
-    value = find_value(
-        data,
-        [
-            "dbaName",
-            "DBAName",
-        ],
+    carrier_text = " ".join(
+        str(x).upper()
+        for x in carrier_values
     )
 
-    if value is not None:
-
-        result["dba_name"] = str(
-            value
+    broker_active = any(
+        word in broker_text
+        for word in (
+            "ACTIVE",
+            "AUTHORIZED",
+            "AUTH",
         )
-
-
-    # -----------------------------------------------------
-    # ENTITY TYPE
-    # -----------------------------------------------------
-
-    value = find_value(
-        data,
-        [
-            "entityType",
-            "carrierType",
-        ],
     )
 
-    if value is not None:
-
-        result["entity_type"] = str(
-            value
+    carrier_active = any(
+        word in carrier_text
+        for word in (
+            "ACTIVE",
+            "AUTHORIZED",
+            "AUTH",
         )
+    )
+
+    # Broker only
+    if broker_active and not carrier_active:
+        return "BROKER"
+
+    # If explicit broker field exists
+    if (
+        "BROKER" in broker_text
+        and not carrier_text
+    ):
+        return "BROKER"
+
+    # Default
+    return "CARRIER"
 
 
-    # -----------------------------------------------------
-    # USDOT STATUS
-    # -----------------------------------------------------
+# =========================================================
+# DETERMINE OPERATING STATUS
+# =========================================================
 
-    value = find_value(
+def determine_operating_status(
+    data,
+) -> str:
+    """
+    Return:
+
+        ACTIVE
+        INACTIVE
+
+    based on FMCSA status / authority data.
+    """
+
+    values = find_values(
         data,
         [
+            "allowToOperate",
+            "operatingStatus",
+            "operatingAuthorityStatus",
             "statusCode",
             "usdotStatus",
             "USDOTStatus",
-            "status",
         ],
     )
 
-    if value is not None:
+    text = " ".join(
+        str(x).upper()
+        for x in values
+    )
 
-        result["usdot_status"] = str(
-            value
-        )
+    # Explicit inactive conditions
+    inactive_words = (
+        "INACTIVE",
+        "OUT OF SERVICE",
+        "OUT-OF-SERVICE",
+        "NOT AUTHORIZED",
+        "REVOKED",
+        "INACTIVE",
+    )
+
+    for word in inactive_words:
+
+        if word in text:
+            return "INACTIVE"
+
+    # Explicit active conditions
+    active_words = (
+        "ACTIVE",
+        "AUTHORIZED",
+        "AUTHORIZED FOR",
+    )
+
+    for word in active_words:
+
+        if word in text:
+            return "ACTIVE"
+
+    # FMCSA often uses status code A
+    if re.search(
+        r"\bA\b",
+        text,
+    ):
+        return "ACTIVE"
+
+    return "INACTIVE"
 
 
-    # -----------------------------------------------------
-    # OUT OF SERVICE
-    # -----------------------------------------------------
+# =========================================================
+# EXTRACT EMAIL
+# =========================================================
+
+def extract_email(
+    data,
+) -> str:
+    """
+    FMCSA may not provide a public email address.
+
+    If the API contains one, use it.
+    Otherwise return Not available.
+    """
 
     value = find_value(
         data,
         [
-            "outOfServiceDate",
-            "oosDate",
+            "email",
+            "emailAddress",
+            "emailAddr",
+            "contactEmail",
         ],
     )
 
-    if value is not None:
+    if value:
 
-        result["out_of_service_date"] = str(
-            value
-        )
+        value = str(value).strip()
+
+        if "@" in value:
+            return value
+
+    return "Not available"
 
 
-    # -----------------------------------------------------
-    # AUTHORITY
-    # -----------------------------------------------------
+# =========================================================
+# EXTRACT LOCATION
+# =========================================================
 
-    value = find_value(
+def extract_location(
+    data,
+) -> str:
+
+    # Try complete address first
+    complete = find_value(
         data,
         [
-            "operatingAuthorityStatus",
-            "authorityStatus",
-            "allowToOperate",
+            "physicalAddress",
+            "phyAddress",
         ],
     )
 
-    if value is not None:
+    if complete:
 
-        result[
-            "operating_authority_status"
-        ] = str(value)
+        text = str(
+            complete
+        ).strip()
 
-
-    # -----------------------------------------------------
-    # STREET
-    # -----------------------------------------------------
+        if text:
+            return text
 
     street = find_value(
         data,
         [
             "phyStreet",
-            "physicalAddress",
+            "physicalStreet",
             "businessStreet",
         ],
     )
@@ -547,6 +520,7 @@ def parse_carrier_data(
         data,
         [
             "phyCity",
+            "physicalCity",
             "businessCity",
         ],
     )
@@ -555,6 +529,7 @@ def parse_carrier_data(
         data,
         [
             "phyState",
+            "physicalState",
             "businessState",
         ],
     )
@@ -563,13 +538,13 @@ def parse_carrier_data(
         data,
         [
             "phyZip",
+            "physicalZip",
             "businessZipCode",
             "zipCode",
         ],
     )
 
-
-    address_parts = []
+    parts = []
 
     for value in (
         street,
@@ -580,208 +555,132 @@ def parse_carrier_data(
 
         if value:
 
-            address_parts.append(
-                str(value)
+            text = str(value).strip()
+
+            if text:
+                parts.append(text)
+
+    return ", ".join(parts)
+
+
+# =========================================================
+# PARSE FMCSA RECORD
+# =========================================================
+
+def parse_carrier_data(
+    data,
+    input_id: str,
+) -> Dict[str, str]:
+
+    dot_number = find_value(
+        data,
+        [
+            "dotNumber",
+            "USDOTNumber",
+            "usdotNumber",
+        ],
+    )
+
+    mc_number = find_value(
+        data,
+        [
+            "mcNumber",
+            "MCNumber",
+            "docketNumber",
+        ],
+    )
+
+    legal_name = find_value(
+        data,
+        [
+            "legalName",
+            "LegalName",
+        ],
+    )
+
+    dba_name = find_value(
+        data,
+        [
+            "dbaName",
+            "DBAName",
+        ],
+    )
+
+    # If API doesn't return MC number,
+    # use the input MC.
+    if not mc_number:
+
+        if classify_identifier(
+            input_id
+        ) in (
+            "MC",
+            "MX",
+            "FF",
+        ):
+
+            mc_number = remove_prefix(
+                input_id
             )
 
-
-    result[
-        "physical_address"
-    ] = ", ".join(
-        address_parts
+    business_type = determine_business_type(
+        data
     )
 
-
-    # -----------------------------------------------------
-    # MAILING ADDRESS
-    # -----------------------------------------------------
-
-    mailing_street = find_value(
-        data,
-        [
-            "mailingStreet",
-            "mailStreet",
-        ],
-    )
-
-    mailing_city = find_value(
-        data,
-        [
-            "mailingCity",
-            "mailCity",
-        ],
-    )
-
-    mailing_state = find_value(
-        data,
-        [
-            "mailingState",
-            "mailState",
-        ],
-    )
-
-    mailing_zip = find_value(
-        data,
-        [
-            "mailingZip",
-            "mailingZipCode",
-            "mailZip",
-        ],
-    )
-
-
-    mailing_parts = []
-
-    for value in (
-        mailing_street,
-        mailing_city,
-        mailing_state,
-        mailing_zip,
-    ):
-
-        if value:
-
-            mailing_parts.append(
-                str(value)
-            )
-
-
-    result[
-        "mailing_address"
-    ] = ", ".join(
-        mailing_parts
-    )
-
-
-    # -----------------------------------------------------
-    # PHONE
-    # -----------------------------------------------------
-
-    value = find_value(
-        data,
-        [
-            "telephone",
-            "phone",
-            "businessPhone",
-        ],
-    )
-
-    if value is not None:
-
-        result["phone"] = str(
-            value
+    operating_status = (
+        determine_operating_status(
+            data
         )
-
-
-    # -----------------------------------------------------
-    # POWER UNITS
-    # -----------------------------------------------------
-
-    value = find_value(
-        data,
-        [
-            "powerUnits",
-            "powerUnit",
-            "totalPowerUnits",
-        ],
     )
 
-    if value is not None:
-
-        result["power_units"] = str(
-            value
-        )
-
-
-    # -----------------------------------------------------
-    # DRIVERS
-    # -----------------------------------------------------
-
-    value = find_value(
-        data,
-        [
-            "drivers",
-            "totalDrivers",
-            "numberOfDrivers",
-        ],
+    email = extract_email(
+        data
     )
 
-    if value is not None:
-
-        result["drivers"] = str(
-            value
-        )
-
-
-    # -----------------------------------------------------
-    # MCS-150 DATE
-    # -----------------------------------------------------
-
-    value = find_value(
-        data,
-        [
-            "mcs150Date",
-            "mcs150FormDate",
-        ],
+    location = extract_location(
+        data
     )
 
-    if value is not None:
+    return {
 
-        result[
-            "mcs150_form_date"
-        ] = str(value)
+        "MC Number": (
+            str(mc_number)
+            if mc_number
+            else ""
+        ),
 
+        "Carrier/Broker Name": (
+            str(legal_name)
+            if legal_name
+            else ""
+        ),
 
-    # -----------------------------------------------------
-    # MCS-150 MILEAGE
-    # -----------------------------------------------------
+        "Type": business_type,
 
-    value = find_value(
-        data,
-        [
-            "mcs150Mileage",
-            "mileage",
-        ],
-    )
+        "Operating Status": (
+            operating_status
+        ),
 
-    if value is not None:
+        "Email Address": email,
 
-        result[
-            "mcs150_mileage"
-        ] = str(value)
+        "Location": location,
 
+        # Internal fields
+        # These can still be used by the app
+        # but won't necessarily be displayed.
+        "_dot_number": (
+            str(dot_number)
+            if dot_number
+            else ""
+        ),
 
-    # -----------------------------------------------------
-    # SAFER URL
-    # -----------------------------------------------------
+        "_dba_name": (
+            str(dba_name)
+            if dba_name
+            else ""
+        ),
 
-    if result["dot_number"]:
-
-        result["safer_url"] = (
-            "https://safer.fmcsa.dot.gov/"
-            "?searchtype=ANY"
-            "&query_type="
-            "queryCarrierSnapshot"
-            "&query_param=USDOT"
-            "&query_string="
-            + result["dot_number"]
-        )
-
-
-    # -----------------------------------------------------
-    # DOTSEARCH URL
-    # -----------------------------------------------------
-
-    if result["dot_number"]:
-
-        result["dotsearch_url"] = (
-            dotsearch_url(
-                result["dot_number"]
-            )
-        )
-
-
-    return result
+        "_raw": data,
+    }
 
 
 # =========================================================
@@ -791,119 +690,106 @@ def parse_carrier_data(
 def search_by_dot(
     dot_number: str,
 ) -> Dict[str, str]:
-    """
-    Search FMCSA by USDOT number.
-    """
 
     clean_dot = remove_prefix(
         dot_number
     )
 
-    endpoint = (
-        "/carriers/"
-        + clean_dot
-    )
-
     try:
 
         data = fmcsa_get(
-            endpoint
+            "/carriers/" + clean_dot
         )
 
         if not data:
 
             return {
-                "input_id": dot_number,
-                "status": "NOT FOUND",
-                "error": (
-                    "FMCSA did not return "
-                    "a carrier for this DOT number."
+                "MC Number": clean_dot,
+                "Carrier/Broker Name": "",
+                "Type": "",
+                "Operating Status": "INACTIVE",
+                "Email Address": "Not available",
+                "Location": "",
+                "_dot_number": clean_dot,
+                "_dba_name": "",
+                "_error": (
+                    "FMCSA record not found."
                 ),
-                "safer_url": "",
-                "dotsearch_url": "",
             }
-
 
         return parse_carrier_data(
             data,
             dot_number,
         )
 
-
     except Exception as exc:
 
         return {
-            "input_id": dot_number,
-            "status": "ERROR",
-            "error": str(exc),
-            "safer_url": "",
-            "dotsearch_url": "",
+            "MC Number": clean_dot,
+            "Carrier/Broker Name": "",
+            "Type": "",
+            "Operating Status": "INACTIVE",
+            "Email Address": "Not available",
+            "Location": "",
+            "_dot_number": clean_dot,
+            "_dba_name": "",
+            "_error": str(exc),
         }
 
 
 # =========================================================
-# SEARCH BY MC / DOCKET
+# SEARCH BY MC
 # =========================================================
 
 def search_by_mc(
     mc_number: str,
 ) -> Dict[str, str]:
-    """
-    Search FMCSA directly by MC/MX/FF docket number.
-    """
 
-    clean_mc = normalize_identifier(
+    clean_mc = remove_prefix(
         mc_number
     )
-
-
-    # Remove MC / MX / FF prefix
-    clean_mc = remove_prefix(
-        clean_mc
-    )
-
-
-    endpoint = (
-        "/carriers/docket-number/"
-        + clean_mc
-        + "/"
-    )
-
 
     try:
 
         data = fmcsa_get(
-            endpoint
+            "/carriers/docket-number/"
+            + clean_mc
+            + "/"
         )
 
         if not data:
 
             return {
-                "input_id": mc_number,
-                "status": "NOT FOUND",
-                "error": (
-                    "FMCSA did not return "
-                    "a carrier for this MC/docket number."
+                "MC Number": clean_mc,
+                "Carrier/Broker Name": "",
+                "Type": "",
+                "Operating Status": "INACTIVE",
+                "Email Address": "Not available",
+                "Location": "",
+                "_dot_number": "",
+                "_dba_name": "",
+                "_error": (
+                    "FMCSA record not found."
                 ),
-                "safer_url": "",
-                "dotsearch_url": "",
             }
-
 
         return parse_carrier_data(
             data,
             mc_number,
         )
 
-
     except Exception as exc:
 
         return {
-            "input_id": mc_number,
-            "status": "ERROR",
-            "error": str(exc),
-            "safer_url": "",
-            "dotsearch_url": "",
+            "MC Number": clean_mc,
+            "Carrier/Broker Name": "",
+            "Type": "",
+            "Operating Status": "INACTIVE",
+            "Email Address": "Not available",
+            "Location": "",
+            "_dot_number": "",
+            "_dba_name": "",
+            "_error": str(exc),
         }
 
 
@@ -918,53 +804,38 @@ def fetch_one(
     ] = None,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> Dict[str, str]:
-    """
-    Search one identifier.
-
-    MC/MX/FF:
-        Uses the FMCSA docket-number endpoint.
-
-    DOT:
-        Uses the FMCSA carrier endpoint.
-    """
 
     identifier = str(
         identifier
     ).strip()
 
-
     if not identifier:
 
         return {
-            "input_id": "",
-            "status": "SKIPPED",
-            "error": "Blank input.",
+            "MC Number": "",
+            "Carrier/Broker Name": "",
+            "Type": "",
+            "Operating Status": "INACTIVE",
+            "Email Address": "Not available",
+            "Location": "",
+            "_dot_number": "",
+            "_dba_name": "",
+            "_error": "Blank input.",
         }
-
 
     kind = classify_identifier(
         identifier
     )
 
-
-    # -----------------------------------------------------
-    # MC / MX / FF
-    # -----------------------------------------------------
-
-    if kind in {
+    if kind in (
         "MC",
         "MX",
         "FF",
-    }:
+    ):
 
         return search_by_mc(
             identifier
         )
-
-
-    # -----------------------------------------------------
-    # DOT
-    # -----------------------------------------------------
 
     if kind == "DOT":
 
@@ -972,20 +843,18 @@ def fetch_one(
             identifier
         )
 
-
-    # -----------------------------------------------------
-    # UNKNOWN
-    # -----------------------------------------------------
-
     return {
-        "input_id": identifier,
-        "status": "ERROR",
-        "error": (
-            "Unknown identifier type. "
-            "Use MC, MX, FF or DOT."
+        "MC Number": identifier,
+        "Carrier/Broker Name": "",
+        "Type": "",
+        "Operating Status": "INACTIVE",
+        "Email Address": "Not available",
+        "Location": "",
+        "_dot_number": "",
+        "_dba_name": "",
+        "_error": (
+            "Unknown identifier type."
         ),
-        "safer_url": "",
-        "dotsearch_url": "",
     }
 
 
@@ -997,12 +866,7 @@ def bulk_fetch(
     identifiers,
     delay_seconds: float = 0.5,
     progress_callback=None,
-) -> list[Dict[str, str]]:
-    """
-    Search multiple MC/DOT identifiers.
-
-    Uses the FMCSA API directly.
-    """
+):
 
     results = []
 
@@ -1010,89 +874,23 @@ def bulk_fetch(
         identifiers
     )
 
-
-    # -----------------------------------------------------
-    # CHECK API KEY BEFORE STARTING
-    # -----------------------------------------------------
-
-    web_key = get_fmcsa_web_key()
-
-    if not web_key:
-
-        error_result = {
-
-            "input_id": "",
-
-            "status": "ERROR",
-
-            "legal_name": "",
-
-            "dba_name": "",
-
-            "dot_number": "",
-
-            "mc_number": "",
-
-            "entity_type": "",
-
-            "usdot_status": "",
-
-            "out_of_service_date": "",
-
-            "operating_authority_status": "",
-
-            "physical_address": "",
-
-            "mailing_address": "",
-
-            "phone": "",
-
-            "power_units": "",
-
-            "drivers": "",
-
-            "mcs150_form_date": "",
-
-            "mcs150_mileage": "",
-
-            "safer_url": "",
-
-            "dotsearch_url": "",
-
-            "error": (
-                "FMCSA API key is missing. "
-                "Go to Streamlit Cloud → "
-                "Manage app → Settings → Secrets "
-                "and add FMCSA_WEB_KEY."
-            ),
-        }
+    if not get_fmcsa_web_key():
 
         return [
-            error_result
+            {
+                "MC Number": "",
+                "Carrier/Broker Name": "",
+                "Type": "",
+                "Operating Status": "INACTIVE",
+                "Email Address": "Not available",
+                "Location": "",
+                "_dot_number": "",
+                "_dba_name": "",
+                "_error": (
+                    "FMCSA API key is missing."
+                ),
+            }
         ]
-
-
-    # -----------------------------------------------------
-    # SESSION
-    # -----------------------------------------------------
-
-    session = requests.Session()
-
-    session.headers.update(
-        {
-            "User-Agent": (
-                "MC-Bulk-Streamlit/1.0"
-            ),
-            "Accept": (
-                "application/json"
-            ),
-        }
-    )
-
-
-    # -----------------------------------------------------
-    # SEARCH
-    # -----------------------------------------------------
 
     for index, identifier in enumerate(
         identifiers,
@@ -1100,14 +898,12 @@ def bulk_fetch(
     ):
 
         result = fetch_one(
-            identifier,
-            session=session,
+            identifier
         )
 
         results.append(
             result
         )
-
 
         if progress_callback:
 
@@ -1115,7 +911,6 @@ def bulk_fetch(
                 index,
                 total,
             )
-
 
         if (
             index < total
@@ -1125,6 +920,5 @@ def bulk_fetch(
             time.sleep(
                 delay_seconds
             )
-
 
     return results
