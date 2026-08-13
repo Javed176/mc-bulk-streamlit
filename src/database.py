@@ -67,7 +67,7 @@ def get_user(username: str):
 def create_user_record(
     username: str,
     password_hash: str,
-    role: str,
+    role: str = "user",
 ):
 
     client = get_supabase()
@@ -112,11 +112,26 @@ def list_users():
         .select(
             "id,username,role,active,created_at"
         )
-        .order("created_at", desc=False)
+        .order(
+            "created_at",
+            desc=False,
+        )
         .execute()
     )
 
     return response.data or []
+
+
+def delete_user(username: str):
+
+    client = get_supabase()
+
+    return (
+        client.table("users")
+        .delete()
+        .eq("username", username)
+        .execute()
+    )
 
 
 # =========================================================
