@@ -1,525 +1,434 @@
-from __future__ import annotations
-
-import re
+import io
 
 import pandas as pd
 import streamlit as st
 
-from src.export import to_excel_bytes
-from src.search import bulk_fetch, normalize_identifier
+from src.search import bulk_fetch
 
+
+# =========================================================
+# PAGE
+# =========================================================
 
 st.set_page_config(
-    page_title="MC / DOT Bulk Search",
-    page_icon="🚚",
+    page_title="MC Bulk Search",
+    page_icon="🚛",
     layout="wide",
 )
 
 
-st.title("🚚 MC / DOT Bulk Search")
+# =========================================================
+# CSS
+# =========================================================
 
-st.caption(
-    "Bulk search MC/DOT numbers using public FMCSA SAFER data. "
-    "DotSearch links are provided for optional verification."
-)
-
-
-# ---------------------------------------------------------
-# SIDEBAR
-# ---------------------------------------------------------
-
-with st.sidebar:
-    st.header("⚙️ Settings")
-
-    delay = st.slider(
-        "Delay between requests",
-        min_value=0.5,
-        max_value=5.0,
-        value=1.0,
-        step=0.5,
-    )
-
-    max_ids = st.number_input(
-        "Maximum IDs per search",
-        min_value=1,
-        max_value=5000,
-        value=250,
-        step=25,
-    )
-
-    st.info(
-        "Use reasonable request rates. Public websites may throttle "
-        "or block aggressive automated requests."
-    )
-
-
-# ---------------------------------------------------------
-# INPUT PARSER
-# ---------------------------------------------------------
-
-def parse_text(raw: str) -> list[str]:
+st.markdown(
     """
-    Extract identifiers from text.
+    <style>
 
-    Supports:
-    MC123456
-    MC-123456
-    DOT123456
-    USDOT123456
-    comma-separated values
-    space-separated values
-    """
+    .status-active {
+        color: #16a34a;
+        font-weight: 700;
+    }
 
-    chunks = re.split(r"[\s,;]+", raw or "")
+    .status-inactive {
+        color: #dc2626;
+        font-weight: 700;
+    }
 
-    cleaned = []
-    seen = set()
+    .type-broker {
+        color: #7c3aed;
+        font-weight: 700;
+    }
 
-    for chunk in chunks:
-        value = chunk.strip()
+    .type-carrier {
+        color: #2563eb;
+        font-weight: 700;
+    }
 
-        if not value:
-            continue
-
-        normalized = normalize_identifier(value)
-
-        if not normalized:
-            continue
-
-        if normalized in seen:
-            continue
-
-        seen.add(normalized)
-        cleaned.append(value)
-
-    return cleaned
-
-
-# ---------------------------------------------------------
-# INPUT SECTION
-# ---------------------------------------------------------
-
-st.subheader("1️⃣ Add MC / DOT numbers")
-
-tab1, tab2 = st.tabs(
-    [
-        "✍️ Paste IDs",
-        "📁 Upload CSV / TXT",
-    ]
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 
-# ---------------------------------------------------------
-# TAB 1
-# ---------------------------------------------------------
+# =========================================================
+# TITLE
+# =========================================================
 
-with tab1:
-
-    raw_input = st.text_area(
-        "Paste MC / DOT numbers",
-        placeholder=(
-            "MC50725\n"
-            "MC1762665\n"
-            "DOT3052774\n"
-            "USDOT3052774"
-        ),
-        height=220,
-    )
-
-    pasted_ids = parse_text(raw_input)
-
-
-# ---------------------------------------------------------
-# TAB 2
-# ---------------------------------------------------------
-
-with tab2:
-
-    uploaded_file = st.file_uploader(
-        "Upload a CSV or TXT file",
-        type=["csv", "txt"],
-    )
-
-    uploaded_ids = []
-
-    if uploaded_file:
-
-        if uploaded_file.name.lower().endswith(".csv"):
-
-            try:
-
-                uploaded_df = pd.read_csv(uploaded_file)
-
-                preferred_columns = {
-                    "MC",
-                    "MCNUMBER",
-                    "MX",
-                    "MXNUMBER",
-                    "FF",
-                    "FFNUMBER",
-                    "DOT",
-                    "DOTNUMBER",
-                    "USDOT",
-                    "USDOTNUMBER",
-                    "NUMBER",
-                    "ID",
-                }
-
-                matching_columns = []
-
-                for column in uploaded_df.columns:
-
-                    normalized_column = normalize_identifier(column)
-
-                    if normalized_column in preferred_columns:
-                        matching_columns.append(column)
-
-                # If no known column exists, use the first column.
-                if not matching_columns:
-                    matching_columns = list(uploaded_df.columns[:1])
-
-                for column in matching_columns:
-
-                    values = (
-                        uploaded_df[column]
-                        .dropna()
-                        .astype(str)
-                        .tolist()
-                    )
-
-                    uploaded_ids.extend(values)
-
-                st.success(
-                    f"Loaded {len(uploaded_ids):,} IDs "
-                    f"from {len(matching_columns)} column(s)."
-                )
-
-            except Exception as exc:
-
-                st.error(
-                    f"Could not read the CSV file: {exc}"
-                )
-
-        else:
-
-            try:
-
-                file_text = uploaded_file.read().decode(
-                    "utf-8",
-                    errors="ignore",
-                )
-
-                uploaded_ids = parse_text(file_text)
-
-                st.success(
-                    f"Loaded {len(uploaded_ids):,} IDs."
-                )
-
-            except Exception as exc:
-
-                st.error(
-                    f"Could not read the TXT file: {exc}"
-                )
-
-
-# ---------------------------------------------------------
-# COMBINE INPUTS
-# ---------------------------------------------------------
-
-all_ids = parse_text(
-    "\n".join(
-        pasted_ids + uploaded_ids
-    )
-)
-
-all_ids = all_ids[: int(max_ids)]
-
+st.title("🚛 MC Bulk Search")
 
 st.write(
-    f"**Unique identifiers ready:** "
-    f"{len(all_ids):,}"
+    "Search FMCSA carrier and broker records "
+    "in bulk using MC numbers."
 )
 
 
-# ---------------------------------------------------------
-# PREVIEW INPUT
-# ---------------------------------------------------------
+# =========================================================
+# INPUT
+# =========================================================
 
-if all_ids:
+st.subheader("MC Numbers")
 
-    preview_df = pd.DataFrame(
-        {
-            "Input": all_ids
-        }
-    )
-
-    st.dataframe(
-        preview_df,
-        use_container_width=True,
-        height=200,
-        hide_index=True,
-    )
+input_text = st.text_area(
+    "Enter MC numbers",
+    height=180,
+    placeholder=(
+        "1066434\n"
+        "123456\n"
+        "987654"
+    ),
+)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # SEARCH BUTTON
-# ---------------------------------------------------------
+# =========================================================
 
-search_clicked = st.button(
-    "🔎 Search in Bulk",
+search_button = st.button(
+    "🔎 Search FMCSA",
     type="primary",
-    disabled=not all_ids,
     use_container_width=True,
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # SEARCH
-# ---------------------------------------------------------
+# =========================================================
 
-if search_clicked:
+if search_button:
 
-    progress_bar = st.progress(0)
+    if not input_text.strip():
 
-    status_message = st.empty()
+        st.warning(
+            "Please enter at least one MC number."
+        )
+
+        st.stop()
+
+
+    # Split lines
+    identifiers = [
+        line.strip()
+        for line in input_text.splitlines()
+        if line.strip()
+    ]
+
+
+    # Remove duplicates
+    identifiers = list(
+        dict.fromkeys(
+            identifiers
+        )
+    )
+
+
+    st.info(
+        f"Searching {len(identifiers):,} "
+        f"identifier(s)..."
+    )
+
+
+    progress_bar = st.progress(
+        0
+    )
+
+    status_text = st.empty()
+
 
     def update_progress(
-        completed: int,
-        total: int,
+        current,
+        total,
     ):
 
-        progress = (
-            completed / total
-            if total
-            else 0
+        progress_bar.progress(
+            current / total
         )
 
-        progress_bar.progress(progress)
-
-        status_message.write(
-            f"Searching {completed:,} / {total:,} ..."
+        status_text.write(
+            f"Searching {current:,} "
+            f"of {total:,}..."
         )
+
 
     results = bulk_fetch(
-        all_ids,
-        delay_seconds=delay,
+        identifiers,
+        delay_seconds=0.5,
         progress_callback=update_progress,
     )
 
-    results_df = pd.DataFrame(results)
 
-    st.session_state["results"] = results_df
+    progress_bar.progress(
+        1.0
+    )
 
-    status_message.success(
-        f"Finished. Processed {len(results_df):,} records."
+    status_text.success(
+        "Search complete."
     )
 
 
-# ---------------------------------------------------------
-# RESULTS
-# ---------------------------------------------------------
+    # =====================================================
+    # RESULTS
+    # =====================================================
 
-if "results" in st.session_state:
+    rows = []
 
-    df = st.session_state["results"].copy()
-
-    st.subheader("2️⃣ Results")
-
-    if df.empty:
-
-        st.warning(
-            "No results were returned."
-        )
-
-    else:
-
-        # -------------------------------------------------
-        # FILTERS
-        # -------------------------------------------------
-
-        filter_col1, filter_col2, filter_col3 = st.columns(3)
-
-        with filter_col1:
-
-            statuses = sorted(
-                df["status"]
-                .dropna()
-                .unique()
-                .tolist()
-            )
-
-            selected_statuses = st.multiselect(
-                "Status",
-                statuses,
-                default=statuses,
-            )
-
-        with filter_col2:
-
-            address_filter = st.text_input(
-                "Search address"
-            )
-
-        with filter_col3:
-
-            company_filter = st.text_input(
-                "Search company"
-            )
+    errors = []
 
 
-        # -------------------------------------------------
-        # APPLY FILTERS
-        # -------------------------------------------------
+    for result in results:
 
-        if selected_statuses:
-
-            filtered_df = df[
-                df["status"].isin(
-                    selected_statuses
-                )
-            ].copy()
-
-        else:
-
-            filtered_df = df.iloc[0:0].copy()
-
-
-        if address_filter:
-
-            address_mask = (
-                filtered_df["physical_address"]
-                .fillna("")
-                .str.contains(
-                    address_filter,
-                    case=False,
-                    na=False,
-                )
-            )
-
-            filtered_df = filtered_df[
-                address_mask
-            ]
-
-
-        if company_filter:
-
-            company_mask = (
-                filtered_df["legal_name"]
-                .fillna("")
-                .str.contains(
-                    company_filter,
-                    case=False,
-                    na=False,
-                )
-            )
-
-            filtered_df = filtered_df[
-                company_mask
-            ]
-
-
-        # -------------------------------------------------
-        # COLUMNS
-        # -------------------------------------------------
-
-        preferred_columns = [
-            "input_id",
-            "legal_name",
-            "dba_name",
-            "dot_number",
-            "mc_number",
-            "entity_type",
-            "usdot_status",
-            "operating_authority_status",
-            "physical_address",
-            "mailing_address",
-            "phone",
-            "power_units",
-            "drivers",
-            "mcs150_form_date",
-            "mcs150_mileage",
-            "safer_url",
-            "dotsearch_url",
-            "error",
-        ]
-
-        display_columns = [
-            column
-            for column in preferred_columns
-            if column in filtered_df.columns
-        ]
-
-
-        # -------------------------------------------------
-        # DISPLAY
-        # -------------------------------------------------
-
-        st.dataframe(
-            filtered_df[display_columns],
-            use_container_width=True,
-            height=550,
-            hide_index=True,
-        )
-
-
-        st.write(
-            f"**Showing {len(filtered_df):,} "
-            f"of {len(df):,} records**"
-        )
-
-
-        # -------------------------------------------------
-        # DOWNLOADS
-        # -------------------------------------------------
-
-        csv_data = filtered_df.to_csv(
-            index=False
-        ).encode("utf-8-sig")
-
-
-        excel_data = to_excel_bytes(
-            filtered_df
-        )
-
-
-        download_col1, download_col2 = st.columns(2)
-
-
-        with download_col1:
-
-            st.download_button(
-                "⬇️ Download CSV",
-                data=csv_data,
-                file_name="mc_bulk_results.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-
-
-        with download_col2:
-
-            st.download_button(
-                "⬇️ Download Excel",
-                data=excel_data,
-                file_name="mc_bulk_results.xlsx",
-                mime=(
-                    "application/"
-                    "vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
+        rows.append(
+            {
+                "MC Number": result.get(
+                    "MC Number",
+                    "",
                 ),
-                use_container_width=True,
+
+                "Carrier/Broker Name": result.get(
+                    "Carrier/Broker Name",
+                    "",
+                ),
+
+                "Broker/Carrier": result.get(
+                    "Type",
+                    "",
+                ),
+
+                "Operating Status": result.get(
+                    "Operating Status",
+                    "",
+                ),
+
+                "Email Address": result.get(
+                    "Email Address",
+                    "Not available",
+                ),
+
+                "Location": result.get(
+                    "Location",
+                    "",
+                ),
+            }
+        )
+
+
+        if result.get("_error"):
+
+            errors.append(
+                result["_error"]
             )
 
 
-# ---------------------------------------------------------
-# FOOTER
-# ---------------------------------------------------------
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "MC Number",
+            "Carrier/Broker Name",
+            "Broker/Carrier",
+            "Operating Status",
+            "Email Address",
+            "Location",
+        ],
+    )
 
-st.divider()
 
-st.caption(
-    "Data source: public FMCSA SAFER carrier information. "
-    "DotSearch links are provided for optional record-level "
-    "verification. Always validate information before using "
-    "it for compliance, outreach, or business decisions."
-)
+    # =====================================================
+    # SUMMARY
+    # =====================================================
+
+    active_count = int(
+        (
+            df["Operating Status"]
+            == "ACTIVE"
+        ).sum()
+    )
+
+    inactive_count = int(
+        (
+            df["Operating Status"]
+            == "INACTIVE"
+        ).sum()
+    )
+
+    broker_count = int(
+        (
+            df["Broker/Carrier"]
+            == "BROKER"
+        ).sum()
+    )
+
+    carrier_count = int(
+        (
+            df["Broker/Carrier"]
+            == "CARRIER"
+        ).sum()
+    )
+
+
+    col1, col2, col3, col4 = st.columns(
+        4
+    )
+
+
+    col1.metric(
+        "Total",
+        len(df),
+    )
+
+    col2.metric(
+        "Active",
+        active_count,
+    )
+
+    col3.metric(
+        "Inactive",
+        inactive_count,
+    )
+
+    col4.metric(
+        "Brokers",
+        broker_count,
+    )
+
+
+    # =====================================================
+    # RESULTS TABLE
+    # =====================================================
+
+    st.subheader(
+        "Results"
+    )
+
+
+    def color_status(
+        value
+    ):
+
+        if value == "ACTIVE":
+
+            return (
+                "color: #16a34a; "
+                "font-weight: 700;"
+            )
+
+        if value == "INACTIVE":
+
+            return (
+                "color: #dc2626; "
+                "font-weight: 700;"
+            )
+
+        return ""
+
+
+    def color_type(
+        value
+    ):
+
+        if value == "BROKER":
+
+            return (
+                "color: #7c3aed; "
+                "font-weight: 700;"
+            )
+
+        if value == "CARRIER":
+
+            return (
+                "color: #2563eb; "
+                "font-weight: 700;"
+            )
+
+        return ""
+
+
+    styled_df = (
+        df.style
+        .map(
+            color_status,
+            subset=[
+                "Operating Status"
+            ],
+        )
+        .map(
+            color_type,
+            subset=[
+                "Broker/Carrier"
+            ],
+        )
+    )
+
+
+    st.dataframe(
+        styled_df,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+    # =====================================================
+    # CSV DOWNLOAD
+    # =====================================================
+
+    csv_data = df.to_csv(
+        index=False
+    ).encode(
+        "utf-8"
+    )
+
+
+    st.download_button(
+        label="⬇️ Download CSV",
+        data=csv_data,
+        file_name="mc_results.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+
+    # =====================================================
+    # EXCEL DOWNLOAD
+    # =====================================================
+
+    excel_buffer = io.BytesIO()
+
+
+    with pd.ExcelWriter(
+        excel_buffer,
+        engine="openpyxl",
+    ) as writer:
+
+        df.to_excel(
+            writer,
+            index=False,
+            sheet_name="MC Results",
+        )
+
+
+    st.download_button(
+        label="⬇️ Download Excel",
+        data=excel_buffer.getvalue(),
+        file_name="mc_results.xlsx",
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        use_container_width=True,
+    )
+
+
+    # =====================================================
+    # ERRORS
+    # =====================================================
+
+    if errors:
+
+        with st.expander(
+            "⚠️ Search messages"
+        ):
+
+            for error in errors:
+
+                st.write(
+                    error
+                )
