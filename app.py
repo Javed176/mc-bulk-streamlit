@@ -1,13 +1,11 @@
-from __future__ import annotations
-
 import io
 import time
 
 import pandas as pd
 import streamlit as st
 
-from src.auth import require_login, logout_user
 from src.search import search_one
+from src.auth import require_login, logout_user
 
 
 # =========================================================
@@ -23,7 +21,7 @@ st.set_page_config(
 
 
 # =========================================================
-# SECURITY
+# AUTHENTICATION
 # =========================================================
 
 require_login()
@@ -33,23 +31,22 @@ require_login()
 # SESSION STATE
 # =========================================================
 
-DEFAULTS = {
+defaults = {
     "running": False,
-    "current_mc": None,
     "start_mc": "",
+    "current_mc": None,
+    "last_searched_mc": None,
     "results": [],
     "searched_count": 0,
-    "clear_animation": False,
 }
 
-for key, value in DEFAULTS.items():
-
+for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
 
 # =========================================================
-# GLOBAL CSS
+# CSS
 # =========================================================
 
 st.markdown(
@@ -61,26 +58,22 @@ st.markdown(
    ===================================================== */
 
 .stApp {
-
     background:
         radial-gradient(
-            circle at 12% 8%,
-            rgba(80,110,255,0.20),
+            circle at 10% 10%,
+            rgba(80,110,255,0.18),
             transparent 30%
         ),
-
         radial-gradient(
-            circle at 88% 12%,
-            rgba(170,70,255,0.18),
+            circle at 90% 10%,
+            rgba(180,70,255,0.16),
             transparent 30%
         ),
-
         radial-gradient(
-            circle at 50% 90%,
-            rgba(30,120,255,0.08),
+            circle at 50% 100%,
+            rgba(40,120,255,0.10),
             transparent 35%
         ),
-
         linear-gradient(
             135deg,
             #05060a 0%,
@@ -93,110 +86,21 @@ st.markdown(
 
 
 /* =====================================================
-   MAIN CONTAINER
+   CONTAINER
    ===================================================== */
 
 .block-container {
-
     max-width: 1450px;
-
     padding-top: 2.2rem;
-    padding-bottom: 5rem;
+    padding-bottom: 4rem;
 }
 
 
 /* =====================================================
-   TEXT
-   ===================================================== */
-
-h1,
-h2,
-h3,
-h4 {
-
-    color: #f5f7ff !important;
-}
-
-
-/* =====================================================
-   HERO
-   ===================================================== */
-
-.hero-card {
-
-    padding: 32px;
-
-    margin-bottom: 20px;
-
-    border-radius: 28px;
-
-    background:
-        linear-gradient(
-            135deg,
-            rgba(255,255,255,0.115),
-            rgba(255,255,255,0.035)
-        );
-
-    border:
-        1px solid
-        rgba(255,255,255,0.12);
-
-    box-shadow:
-        0 25px 75px
-        rgba(0,0,0,0.45),
-
-        inset 0 1px 0
-        rgba(255,255,255,0.08);
-
-    backdrop-filter:
-        blur(25px)
-        saturate(160%);
-
-    -webkit-backdrop-filter:
-        blur(25px)
-        saturate(160%);
-}
-
-
-.hero-title {
-
-    font-size: 3rem;
-
-    font-weight: 800;
-
-    letter-spacing: -0.055em;
-
-    background:
-        linear-gradient(
-            90deg,
-            #ffffff,
-            #aebcff,
-            #ffffff
-        );
-
-    -webkit-background-clip: text;
-
-    -webkit-text-fill-color: transparent;
-}
-
-
-.hero-subtitle {
-
-    margin-top: 7px;
-
-    color:
-        rgba(235,240,255,0.62);
-
-    font-size: 1rem;
-}
-
-
-/* =====================================================
-   GLASS CARD
+   GLASS CARDS
    ===================================================== */
 
 .glass-card {
-
     background:
         linear-gradient(
             135deg,
@@ -204,16 +108,17 @@ h4 {
             rgba(255,255,255,0.035)
         );
 
-    border:
-        1px solid
-        rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.12);
+
+    border-radius: 28px;
+
+    padding: 28px;
+
+    margin-bottom: 20px;
 
     box-shadow:
-        0 20px 70px
-        rgba(0,0,0,0.40),
-
-        inset 0 1px 0
-        rgba(255,255,255,0.07);
+        0 20px 70px rgba(0,0,0,0.45),
+        inset 0 1px 0 rgba(255,255,255,0.08);
 
     backdrop-filter:
         blur(25px)
@@ -222,105 +127,34 @@ h4 {
     -webkit-backdrop-filter:
         blur(25px)
         saturate(160%);
-
-    border-radius:
-        28px;
-
-    padding:
-        26px;
-
-    margin-bottom:
-        20px;
 }
 
 
 /* =====================================================
-   CURRENT MC
+   HERO
    ===================================================== */
 
-.current-card {
-
-    text-align: center;
-
-    padding:
-        26px 20px;
-
-    border-radius:
-        24px;
+.hero-title {
+    font-size: 3rem;
+    font-weight: 800;
+    letter-spacing: -0.05em;
 
     background:
         linear-gradient(
-            135deg,
-            rgba(90,110,255,0.12),
-            rgba(130,70,255,0.06)
+            90deg,
+            #ffffff,
+            #b9c5ff,
+            #ffffff
         );
 
-    border:
-        1px solid
-        rgba(110,130,255,0.20);
-
-    box-shadow:
-        0 15px 50px
-        rgba(50,60,180,0.18),
-
-        inset 0 1px 0
-        rgba(255,255,255,0.06);
-
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
-
-.current-label {
-
-    color:
-        #8f9ab7;
-
-    font-size:
-        0.85rem;
-
-    text-transform:
-        uppercase;
-
-    letter-spacing:
-        0.12em;
-
-    font-weight:
-        700;
-}
-
-
-.current-number {
-
-    margin-top:
-        8px;
-
-    font-size:
-        2.35rem;
-
-    font-weight:
-        800;
-
-    letter-spacing:
-        -0.04em;
-
-    color:
-        #ffffff;
-
-    text-shadow:
-        0 0 25px
-        rgba(110,130,255,0.35);
-}
-
-
-.current-hint {
-
-    margin-top:
-        5px;
-
-    color:
-        #78839f;
-
-    font-size:
-        0.85rem;
+.hero-subtitle {
+    color: rgba(235,240,255,0.62);
+    font-size: 1rem;
+    margin-top: 6px;
 }
 
 
@@ -329,13 +163,11 @@ h4 {
    ===================================================== */
 
 div[data-baseweb="input"] {
-
     background:
         rgba(255,255,255,0.065) !important;
 
     border:
-        1px solid
-        rgba(255,255,255,0.12) !important;
+        1px solid rgba(255,255,255,0.12) !important;
 
     border-radius:
         18px !important;
@@ -344,28 +176,18 @@ div[data-baseweb="input"] {
         all 0.25s ease;
 }
 
-
 div[data-baseweb="input"]:focus-within {
-
     border-color:
         rgba(120,145,255,0.85) !important;
 
     box-shadow:
-        0 0 0 3px
-        rgba(100,125,255,0.12),
-
-        0 0 30px
-        rgba(80,100,255,0.15);
+        0 0 0 3px rgba(100,125,255,0.12),
+        0 0 30px rgba(80,100,255,0.15);
 }
 
-
 input {
-
-    color:
-        #ffffff !important;
-
-    font-size:
-        1.05rem !important;
+    color: #ffffff !important;
+    font-size: 1.05rem !important;
 }
 
 
@@ -374,16 +196,12 @@ input {
    ===================================================== */
 
 .stButton > button {
+    min-height: 50px;
 
-    min-height:
-        50px;
-
-    border-radius:
-        18px !important;
+    border-radius: 18px !important;
 
     border:
-        1px solid
-        rgba(255,255,255,0.14) !important;
+        1px solid rgba(255,255,255,0.14) !important;
 
     background:
         linear-gradient(
@@ -392,28 +210,21 @@ input {
             rgba(255,255,255,0.045)
         ) !important;
 
-    color:
-        #ffffff !important;
+    color: #ffffff !important;
 
-    font-weight:
-        700 !important;
+    font-weight: 700 !important;
 
     box-shadow:
-        0 10px 30px
-        rgba(0,0,0,0.25),
-
-        inset 0 1px 0
-        rgba(255,255,255,0.10);
+        0 10px 30px rgba(0,0,0,0.25),
+        inset 0 1px 0 rgba(255,255,255,0.10);
 
     transition:
-        transform 0.20s ease,
-        box-shadow 0.20s ease,
-        background 0.20s ease;
+        transform 0.2s ease,
+        box-shadow 0.2s ease,
+        background 0.2s ease;
 }
 
-
 .stButton > button:hover {
-
     transform:
         translateY(-2px)
         scale(1.015);
@@ -421,172 +232,72 @@ input {
     background:
         linear-gradient(
             135deg,
-            rgba(105,130,255,0.32),
-            rgba(130,80,255,0.22)
+            rgba(105,130,255,0.30),
+            rgba(130,80,255,0.20)
         ) !important;
 
     box-shadow:
-        0 14px 38px
-        rgba(75,95,255,0.28),
-
-        0 0 28px
-        rgba(90,110,255,0.18);
+        0 12px 35px rgba(75,95,255,0.28),
+        0 0 25px rgba(90,110,255,0.18);
 }
-
 
 .stButton > button:active {
-
-    transform:
-        scale(0.97);
+    transform: scale(0.97);
 }
 
 
 /* =====================================================
-   PRIMARY BUTTON
+   CURRENT MC
    ===================================================== */
 
-button[kind="primary"] {
+.current-mc-card {
+    text-align: center;
+
+    padding:
+        25px 20px;
+
+    margin-top: 20px;
+
+    border-radius: 24px;
 
     background:
         linear-gradient(
             135deg,
-            #536dff,
-            #7b45e8
-        ) !important;
-
-    border:
-        1px solid
-        rgba(160,170,255,0.45) !important;
-
-    box-shadow:
-        0 10px 35px
-        rgba(83,109,255,0.35),
-
-        0 0 25px
-        rgba(120,70,255,0.18);
-}
-
-
-button[kind="primary"]:hover {
-
-    background:
-        linear-gradient(
-            135deg,
-            #6680ff,
-            #914fff
-        ) !important;
-
-    box-shadow:
-        0 15px 45px
-        rgba(83,109,255,0.45),
-
-        0 0 35px
-        rgba(120,70,255,0.25);
-}
-
-
-/* =====================================================
-   METRICS
-   ===================================================== */
-
-div[data-testid="stMetric"] {
-
-    background:
-        linear-gradient(
-            135deg,
-            rgba(255,255,255,0.09),
-            rgba(255,255,255,0.035)
+            rgba(90,110,255,0.13),
+            rgba(160,70,255,0.08)
         );
 
     border:
-        1px solid
-        rgba(255,255,255,0.10);
-
-    border-radius:
-        22px;
-
-    padding:
-        18px;
+        1px solid rgba(130,150,255,0.18);
 
     box-shadow:
-        0 15px 40px
-        rgba(0,0,0,0.25);
-
-    backdrop-filter:
-        blur(20px);
+        inset 0 1px 0 rgba(255,255,255,0.08),
+        0 15px 45px rgba(0,0,0,0.25);
 }
 
-
-div[data-testid="stMetricValue"] {
-
-    color:
-        #ffffff !important;
+.current-label {
+    color: #9da6c0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
 }
 
+.current-number {
+    font-size: 2.7rem;
+    font-weight: 800;
+    color: #ffffff;
 
-/* =====================================================
-   FILTERS
-   ===================================================== */
+    margin-top: 5px;
 
-.filter-card {
-
-    padding:
-        20px 22px;
-
-    border-radius:
-        22px;
-
-    background:
-        linear-gradient(
-            135deg,
-            rgba(255,255,255,0.075),
-            rgba(255,255,255,0.025)
-        );
-
-    border:
-        1px solid
-        rgba(255,255,255,0.10);
-
-    margin:
-        18px 0;
+    text-shadow:
+        0 0 25px rgba(100,130,255,0.35);
 }
 
-
-/* =====================================================
-   STATUS CARD
-   ===================================================== */
-
-.status-card {
-
-    padding:
-        22px 26px;
-
-    margin-bottom:
-        20px;
-
-    border-radius:
-        22px;
-
-    background:
-        linear-gradient(
-            135deg,
-            rgba(54,255,138,0.08),
-            rgba(255,255,255,0.035)
-        );
-
-    border:
-        1px solid
-        rgba(54,255,138,0.18);
-
-    box-shadow:
-        0 15px 45px
-        rgba(0,0,0,0.28),
-
-        inset 0 1px 0
-        rgba(255,255,255,0.06);
-
-    backdrop-filter:
-        blur(20px);
+.current-hint {
+    color: #8993ad;
+    font-size: 0.85rem;
+    margin-top: 5px;
 }
 
 
@@ -595,21 +306,14 @@ div[data-testid="stMetricValue"] {
    ===================================================== */
 
 .live-dot {
+    display: inline-block;
 
-    display:
-        inline-block;
+    width: 10px;
+    height: 10px;
 
-    width:
-        10px;
+    border-radius: 50%;
 
-    height:
-        10px;
-
-    border-radius:
-        50%;
-
-    background:
-        #36ff8a;
+    background: #36ff8a;
 
     box-shadow:
         0 0 8px #36ff8a,
@@ -618,35 +322,24 @@ div[data-testid="stMetricValue"] {
     animation:
         pulse 1.4s infinite;
 
-    margin-right:
-        8px;
+    margin-right: 8px;
 }
-
 
 @keyframes pulse {
 
     0% {
-        transform:
-            scale(0.85);
-
-        opacity:
-            0.6;
+        transform: scale(0.85);
+        opacity: 0.6;
     }
 
     50% {
-        transform:
-            scale(1.2);
-
-        opacity:
-            1;
+        transform: scale(1.2);
+        opacity: 1;
     }
 
     100% {
-        transform:
-            scale(0.85);
-
-        opacity:
-            0.6;
+        transform: scale(0.85);
+        opacity: 0.6;
     }
 }
 
@@ -656,83 +349,81 @@ div[data-testid="stMetricValue"] {
    ===================================================== */
 
 .badge {
-
-    display:
-        inline-block;
+    display: inline-block;
 
     padding:
-        9px 14px;
+        9px 15px;
 
     margin:
-        4px 5px 4px 0;
+        4px 6px 10px 0;
 
-    border-radius:
-        999px;
+    border-radius: 999px;
 
-    font-size:
-        0.88rem;
+    font-weight: 700;
 
-    font-weight:
-        750;
-
-    border:
-        1px solid;
+    font-size: 0.9rem;
 }
-
 
 .badge-active {
-
-    color:
-        #72ffae;
+    color: #58ff9a;
 
     background:
-        rgba(54,255,138,0.09);
+        rgba(40,255,130,0.10);
 
-    border-color:
-        rgba(54,255,138,0.22);
+    border:
+        1px solid rgba(60,255,145,0.25);
 
     box-shadow:
-        0 0 18px
-        rgba(54,255,138,0.08);
+        0 0 18px rgba(50,255,130,0.08);
 }
-
 
 .badge-inactive {
-
-    color:
-        #ff7285;
+    color: #ff667d;
 
     background:
-        rgba(255,70,100,0.08);
+        rgba(255,70,100,0.10);
 
-    border-color:
-        rgba(255,70,100,0.20);
+    border:
+        1px solid rgba(255,80,105,0.22);
 }
-
 
 .badge-carrier {
-
-    color:
-        #70a8ff;
+    color: #66aaff;
 
     background:
-        rgba(70,130,255,0.08);
+        rgba(70,130,255,0.10);
 
-    border-color:
-        rgba(70,130,255,0.20);
+    border:
+        1px solid rgba(80,140,255,0.22);
+}
+
+.badge-broker {
+    color: #d18aff;
+
+    background:
+        rgba(180,80,255,0.10);
+
+    border:
+        1px solid rgba(190,90,255,0.22);
 }
 
 
-.badge-broker {
+/* =====================================================
+   FILTERS
+   ===================================================== */
 
-    color:
-        #ce8cff;
+.filter-card {
+    margin-top: 18px;
+
+    padding: 20px;
+
+    border-radius: 22px;
 
     background:
-        rgba(160,80,255,0.08);
+        rgba(255,255,255,0.035);
 
-    border-color:
-        rgba(160,80,255,0.20);
+    border:
+        1px solid rgba(255,255,255,0.08);
 }
 
 
@@ -741,20 +432,43 @@ div[data-testid="stMetricValue"] {
    ===================================================== */
 
 div[data-testid="stDataFrame"] {
+    border-radius: 22px;
 
-    border-radius:
-        22px;
-
-    overflow:
-        hidden;
+    overflow: hidden;
 
     border:
-        1px solid
-        rgba(255,255,255,0.10);
+        1px solid rgba(255,255,255,0.10);
 
     box-shadow:
-        0 20px 60px
-        rgba(0,0,0,0.30);
+        0 20px 60px rgba(0,0,0,0.30);
+}
+
+
+/* =====================================================
+   METRICS
+   ===================================================== */
+
+div[data-testid="stMetric"] {
+    background:
+        linear-gradient(
+            135deg,
+            rgba(255,255,255,0.09),
+            rgba(255,255,255,0.035)
+        );
+
+    border:
+        1px solid rgba(255,255,255,0.10);
+
+    border-radius: 22px;
+
+    padding: 18px;
+
+    box-shadow:
+        0 15px 40px rgba(0,0,0,0.25);
+}
+
+div[data-testid="stMetricValue"] {
+    color: #ffffff !important;
 }
 
 
@@ -763,33 +477,24 @@ div[data-testid="stDataFrame"] {
    ===================================================== */
 
 .black-hole {
+    position: fixed;
 
-    position:
-        fixed;
-
-    left:
-        50%;
-
-    top:
-        50%;
+    left: 50%;
+    top: 50%;
 
     transform:
         translate(-50%, -50%);
 
-    width:
-        220px;
+    width: 220px;
+    height: 220px;
 
-    height:
-        220px;
+    border-radius: 50%;
 
-    border-radius:
-        50%;
+    z-index: 999999;
 
-    z-index:
-        999999;
+    pointer-events: none;
 
     background:
-
         radial-gradient(
             circle,
             #000 0%,
@@ -802,15 +507,9 @@ div[data-testid="stDataFrame"] {
         );
 
     box-shadow:
-
-        0 0 35px
-        #7a2cff,
-
-        0 0 100px
-        #5a1cff,
-
-        0 0 180px
-        rgba(255,40,210,0.35);
+        0 0 35px #7a2cff,
+        0 0 100px #5a1cff,
+        0 0 180px rgba(255,40,210,0.35);
 
     animation:
         blackHole 1.35s
@@ -818,19 +517,12 @@ div[data-testid="stDataFrame"] {
         forwards;
 }
 
-
 @keyframes blackHole {
 
     0% {
-
-        width:
-            20px;
-
-        height:
-            20px;
-
-        opacity:
-            0;
+        width: 20px;
+        height: 20px;
+        opacity: 0;
 
         transform:
             translate(-50%, -50%)
@@ -838,42 +530,24 @@ div[data-testid="stDataFrame"] {
     }
 
     25% {
-
-        width:
-            260px;
-
-        height:
-            260px;
-
-        opacity:
-            1;
+        width: 260px;
+        height: 260px;
+        opacity: 1;
     }
 
     65% {
-
-        width:
-            330px;
-
-        height:
-            330px;
-
-        opacity:
-            1;
+        width: 330px;
+        height: 330px;
+        opacity: 1;
 
         filter:
             brightness(1.4);
     }
 
     100% {
-
-        width:
-            0;
-
-        height:
-            0;
-
-        opacity:
-            0;
+        width: 0;
+        height: 0;
+        opacity: 0;
 
         transform:
             translate(-50%, -50%)
@@ -889,78 +563,49 @@ div[data-testid="stDataFrame"] {
 @media (max-width: 768px) {
 
     .hero-title {
-
-        font-size:
-            2.2rem !important;
+        font-size: 2.2rem;
     }
 
     .block-container {
-
-        padding-left:
-            1rem;
-
-        padding-right:
-            1rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
     }
 
     .current-number {
-
-        font-size:
-            1.9rem;
+        font-size: 2.2rem;
     }
-
 }
 
 </style>
-    """,
+""",
     unsafe_allow_html=True,
 )
 
 
 # =========================================================
-# HERO
+# HEADER
 # =========================================================
 
 st.markdown(
     """
-    <div class="hero-card">
+<div class="glass-card">
 
-        <div class="hero-title">
-            ✦ MC Search
-        </div>
-
-        <div class="hero-subtitle">
-            FMCSA intelligence → DotSearch enrichment
-        </div>
-
+    <div class="hero-title">
+        ✦ MC Search
     </div>
-    """,
+
+    <div class="hero-subtitle">
+        FMCSA intelligence → DotSearch enrichment
+    </div>
+
+</div>
+""",
     unsafe_allow_html=True,
 )
 
 
 # =========================================================
-# TOP RIGHT LOGOUT
-# =========================================================
-
-logout_col1, logout_col2 = st.columns(
-    [8, 1]
-)
-
-with logout_col2:
-
-    if st.button(
-        "Logout",
-        use_container_width=True,
-    ):
-
-        logout_user()
-
-        st.rerun()
-
-
-# =========================================================
-# SEARCH CONTROL CARD
+# CONTROL CARD
 # =========================================================
 
 st.markdown(
@@ -968,13 +613,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown(
-    "### 🎯 Search Control"
-)
+st.markdown("### 🎯 Search Control")
 
 
 # =========================================================
-# START MC
+# START MC INPUT
 # =========================================================
 
 start_value = st.session_state.start_mc
@@ -997,51 +640,69 @@ st.caption(
 # CURRENT MC DISPLAY
 # =========================================================
 
-if st.session_state.current_mc is not None:
+if st.session_state.running:
 
-    current_display = (
-        f"{int(st.session_state.current_mc):,}"
+    display_mc = st.session_state.current_mc
+
+    display_hint = (
+        "Search running • next MC will update automatically"
     )
 
-    if st.session_state.running:
+elif st.session_state.last_searched_mc is not None:
 
-        current_hint = (
-            "Search running • next MC will update automatically"
-        )
+    # IMPORTANT:
+    # After STOP, show the LAST MC actually searched,
+    # NOT the next MC.
 
-    else:
+    display_mc = st.session_state.last_searched_mc
 
-        current_hint = (
-            "Search stopped • press START to continue"
-        )
+    display_hint = (
+        "Search stopped • press START to continue"
+    )
+
+elif st.session_state.start_mc:
+
+    display_mc = st.session_state.start_mc
+
+    display_hint = "Ready to search"
 
 else:
 
-    current_display = "—"
+    display_mc = "—"
 
-    current_hint = (
-        "Waiting for search"
-    )
+    display_hint = "Enter a starting MC"
+
+
+if display_mc != "—":
+
+    try:
+        formatted_mc = f"{int(display_mc):,}"
+    except Exception:
+        formatted_mc = str(display_mc)
+
+else:
+
+    formatted_mc = "—"
 
 
 st.markdown(
     f"""
-    <div class="current-card">
+<div class="current-mc-card">
 
-        <div class="current-label">
-            Current MC Number
-        </div>
-
-        <div class="current-number">
-            {current_display}
-        </div>
-
-        <div class="current-hint">
-            {current_hint}
-        </div>
-
+    <div class="current-label">
+        Current MC Number
     </div>
-    """,
+
+    <div class="current-number">
+        {formatted_mc}
+    </div>
+
+    <div class="current-hint">
+        {display_hint}
+    </div>
+
+</div>
+""",
     unsafe_allow_html=True,
 )
 
@@ -1050,9 +711,7 @@ st.markdown(
 # BUTTONS
 # =========================================================
 
-col1, col2, col3 = st.columns(
-    3
-)
+col1, col2, col3 = st.columns(3)
 
 
 with col1:
@@ -1094,28 +753,19 @@ st.markdown(
 
 if clear_button:
 
-    st.session_state.clear_animation = True
-
     st.markdown(
-        """
-        <div class="black-hole"></div>
-        """,
+        '<div class="black-hole"></div>',
         unsafe_allow_html=True,
     )
 
     time.sleep(1.0)
 
-    st.session_state.results = []
-
-    st.session_state.searched_count = 0
-
     st.session_state.running = False
-
-    st.session_state.current_mc = None
-
     st.session_state.start_mc = ""
-
-    st.session_state.clear_animation = False
+    st.session_state.current_mc = None
+    st.session_state.last_searched_mc = None
+    st.session_state.results = []
+    st.session_state.searched_count = 0
 
     st.rerun()
 
@@ -1126,17 +776,23 @@ if clear_button:
 
 if stop_button:
 
+    # current_mc points to the NEXT MC.
+    # Save the previous MC as the last actually searched.
+
+    if st.session_state.current_mc is not None:
+
+        st.session_state.last_searched_mc = (
+            int(st.session_state.current_mc) - 1
+        )
+
     st.session_state.running = False
 
+    st.session_state.current_mc = None
+
     # IMPORTANT:
-    #
-    # Do NOT clear:
-    #
-    # results
-    # searched_count
-    # start_mc
-    #
-    # Results must survive STOP.
+    # DO NOT clear results.
+    # DO NOT reset searched_count.
+    # Results remain until Clear History.
 
     st.rerun()
 
@@ -1163,49 +819,58 @@ if start_button:
 
         st.stop()
 
+    start_number = int(cleaned)
 
-    # ---------------------------------------------
-    # New search starts from the entered MC.
+    # -----------------------------------------------------
+    # New search starts from exactly what user typed.
     #
     # Existing results are intentionally preserved.
-    # ---------------------------------------------
+    # -----------------------------------------------------
 
-    st.session_state.start_mc = cleaned
-
-    st.session_state.current_mc = int(
-        cleaned
+    st.session_state.start_mc = str(
+        start_number
     )
 
+    st.session_state.current_mc = (
+        start_number
+    )
+
+    st.session_state.last_searched_mc = None
+
     st.session_state.running = True
+
+    # IMPORTANT:
+    # Results are NOT cleared here.
 
     st.rerun()
 
 
 # =========================================================
-# LIVE STATUS
+# LIVE SEARCH STATUS
 # =========================================================
 
 if st.session_state.running:
 
+    current = st.session_state.current_mc
+
     st.markdown(
-        """
-        <div class="status-card">
+        f"""
+<div class="glass-card">
 
-            <span class="live-dot"></span>
+    <span class="live-dot"></span>
 
-            <b>
-                Searching sequential MC numbers...
-            </b>
+    <b>
+        Searching MC {int(current):,}
+    </b>
 
-            <br>
+    <br>
 
-            <small style="color:#9da6c0;">
-                Searching one MC at a time.
-                Press STOP to pause the search.
-            </small>
+    <small style="color:#9da6c0;">
+        Searching sequential MC numbers automatically...
+    </small>
 
-        </div>
-        """,
+</div>
+""",
         unsafe_allow_html=True,
     )
 
@@ -1214,22 +879,22 @@ elif st.session_state.searched_count > 0:
 
     st.markdown(
         f"""
-        <div class="status-card">
+<div class="glass-card">
 
-            <b style="color:#72ffae;">
-                ✓ Search stopped
-            </b>
+    <b style="color:#72ffae;">
+        ✓ Search stopped
+    </b>
 
-            <br><br>
+    <br><br>
 
-            <small style="color:#9da6c0;">
-                {st.session_state.searched_count:,}
-                MC number(s) processed.
-                Results are preserved until Clear History.
-            </small>
+    <small style="color:#9da6c0;">
+        {st.session_state.searched_count:,}
+        MC number(s) processed.
+        Results are preserved until Clear History.
+    </small>
 
-        </div>
-        """,
+</div>
+""",
         unsafe_allow_html=True,
     )
 
@@ -1244,15 +909,13 @@ if st.session_state.running:
         st.session_state.current_mc
     )
 
-
     # -----------------------------------------------------
-    # SEARCH CURRENT MC
+    # SEARCH EXACT CURRENT MC
     # -----------------------------------------------------
 
     result = search_one(
         str(current_mc)
     )
-
 
     # -----------------------------------------------------
     # STORE RESULT
@@ -1264,36 +927,31 @@ if st.session_state.running:
 
     st.session_state.searched_count += 1
 
+    # -----------------------------------------------------
+    # SAVE LAST ACTUALLY SEARCHED MC
+    # -----------------------------------------------------
+
+    st.session_state.last_searched_mc = (
+        current_mc
+    )
 
     # -----------------------------------------------------
-    # NEXT MC
+    # MOVE TO NEXT MC
     #
     # Example:
     #
-    # 1800000 searched
-    # current becomes 1800001
+    # search 1800000
+    # next = 1800001
     #
-    # 1800001 searched
-    # current becomes 1800002
+    # search 1800001
+    # next = 1800002
     # -----------------------------------------------------
 
     st.session_state.current_mc = (
         current_mc + 1
     )
 
-
-    # -----------------------------------------------------
-    # SMALL DELAY
-    # -----------------------------------------------------
-
-    time.sleep(
-        0.5
-    )
-
-
-    # -----------------------------------------------------
-    # RERUN
-    # -----------------------------------------------------
+    time.sleep(0.5)
 
     st.rerun()
 
@@ -1304,14 +962,22 @@ if st.session_state.running:
 
 if st.session_state.results:
 
+    st.markdown(
+        '<div class="glass-card">',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "### 📊 Search Results"
+    )
+
+
     # =====================================================
-    # CONVERT RESULTS
+    # BUILD DATAFRAME
     # =====================================================
 
     rows = []
-
     errors = []
-
 
     for result in st.session_state.results:
 
@@ -1359,7 +1025,6 @@ if st.session_state.results:
             }
         )
 
-
         if result.get("_error"):
 
             errors.append(
@@ -1383,16 +1048,76 @@ if st.session_state.results:
 
 
     # =====================================================
-    # RESULTS CARD
+    # FILTERS
     # =====================================================
 
     st.markdown(
-        '<div class="glass-card">',
+        '<div class="filter-card">',
         unsafe_allow_html=True,
     )
 
+    st.markdown("#### 🔎 Filters")
+
+    filter_col1, filter_col2 = st.columns(2)
+
+
+    with filter_col1:
+
+        status_filter = st.selectbox(
+            "Operating Status",
+            [
+                "ALL",
+                "ACTIVE",
+                "INACTIVE",
+            ],
+            key="status_filter",
+        )
+
+
+    with filter_col2:
+
+        type_filter = st.selectbox(
+            "Broker / Carrier",
+            [
+                "ALL",
+                "CARRIER",
+                "BROKER",
+            ],
+            key="type_filter",
+        )
+
+
+    filtered_df = df.copy()
+
+
+    if status_filter != "ALL":
+
+        filtered_df = filtered_df[
+            filtered_df[
+                "Operating Status"
+            ].astype(str).str.upper()
+            == status_filter
+        ]
+
+
+    if type_filter != "ALL":
+
+        filtered_df = filtered_df[
+            filtered_df[
+                "Broker/Carrier"
+            ].astype(str).str.upper()
+            == type_filter
+        ]
+
+
+    st.caption(
+        f"Showing {len(filtered_df):,} "
+        f"of {len(df):,} result(s)"
+    )
+
     st.markdown(
-        "### 📊 Search Results"
+        "</div>",
+        unsafe_allow_html=True,
     )
 
 
@@ -1409,7 +1134,6 @@ if st.session_state.results:
         ).sum()
     )
 
-
     inactive_count = int(
         (
             df["Operating Status"]
@@ -1419,7 +1143,6 @@ if st.session_state.results:
         ).sum()
     )
 
-
     carrier_count = int(
         (
             df["Broker/Carrier"]
@@ -1428,7 +1151,6 @@ if st.session_state.results:
             == "CARRIER"
         ).sum()
     )
-
 
     broker_count = int(
         (
@@ -1440,164 +1162,27 @@ if st.session_state.results:
     )
 
 
-    # =====================================================
-    # BADGES
-    # =====================================================
-
-    st.markdown(
-        f"""
-        <span class="badge badge-active">
-            ● Active {active_count}
-        </span>
-
-        <span class="badge badge-inactive">
-            ● Inactive {inactive_count}
-        </span>
-
-        <span class="badge badge-carrier">
-            ◆ Carriers {carrier_count}
-        </span>
-
-        <span class="badge badge-broker">
-            ◆ Brokers {broker_count}
-        </span>
-        """,
-        unsafe_allow_html=True,
-    )
+    c1, c2, c3, c4 = st.columns(4)
 
 
-    st.markdown(
-        "<br>",
-        unsafe_allow_html=True,
-    )
-
-
-    # =====================================================
-    # TOTAL METRICS
-    # =====================================================
-
-    m1, m2, m3, m4 = st.columns(
-        4
-    )
-
-
-    m1.metric(
+    c1.metric(
         "Searched",
         len(df),
     )
 
-    m2.metric(
+    c2.metric(
         "Active",
         active_count,
     )
 
-    m3.metric(
+    c3.metric(
         "Carriers",
         carrier_count,
     )
 
-    m4.metric(
+    c4.metric(
         "Brokers",
         broker_count,
-    )
-
-
-    # =====================================================
-    # FILTER CARD
-    # =====================================================
-
-    st.markdown(
-        """
-        <div class="filter-card">
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        "### 🔎 Filters"
-    )
-
-
-    filter_col1, filter_col2 = st.columns(
-        2
-    )
-
-
-    with filter_col1:
-
-        status_filter = st.selectbox(
-            "Operating Status",
-            options=[
-                "ALL",
-                "ACTIVE",
-                "INACTIVE",
-            ],
-            index=0,
-            key="status_filter",
-        )
-
-
-    with filter_col2:
-
-        type_filter = st.selectbox(
-            "Broker / Carrier",
-            options=[
-                "ALL",
-                "CARRIER",
-                "BROKER",
-            ],
-            index=0,
-            key="type_filter",
-        )
-
-
-    st.markdown(
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-
-    # =====================================================
-    # APPLY FILTERS
-    # =====================================================
-
-    filtered_df = df.copy()
-
-
-    if status_filter != "ALL":
-
-        filtered_df = filtered_df[
-            filtered_df[
-                "Operating Status"
-            ]
-            .astype(str)
-            .str.upper()
-            == status_filter
-        ]
-
-
-    if type_filter != "ALL":
-
-        filtered_df = filtered_df[
-            filtered_df[
-                "Broker/Carrier"
-            ]
-            .astype(str)
-            .str.upper()
-            == type_filter
-        ]
-
-
-    # =====================================================
-    # FILTER RESULT COUNT
-    # =====================================================
-
-    st.caption(
-        f"Showing "
-        f"{len(filtered_df):,} "
-        f"of "
-        f"{len(df):,} "
-        f"searched records."
     )
 
 
@@ -1647,10 +1232,6 @@ if st.session_state.results:
         return ""
 
 
-    # =====================================================
-    # STYLE FILTERED DATA
-    # =====================================================
-
     styled_df = (
         filtered_df.style
         .map(
@@ -1668,10 +1249,6 @@ if st.session_state.results:
     )
 
 
-    # =====================================================
-    # TABLE
-    # =====================================================
-
     st.dataframe(
         styled_df,
         use_container_width=True,
@@ -1686,7 +1263,7 @@ if st.session_state.results:
 
 
     # =====================================================
-    # EXPORT CARD
+    # EXPORT
     # =====================================================
 
     st.markdown(
@@ -1695,18 +1272,16 @@ if st.session_state.results:
     )
 
     st.markdown(
-        "### ⬇ Export Filtered Data"
+        "### ⬇ Export Filtered Results"
     )
 
     st.caption(
-        "Downloads contain only the records currently "
+        "Downloads contain only the results currently "
         "selected by the filters."
     )
 
 
-    download_col1, download_col2 = st.columns(
-        2
-    )
+    download_col1, download_col2 = st.columns(2)
 
 
     # =====================================================
@@ -1715,15 +1290,13 @@ if st.session_state.results:
 
     csv_data = filtered_df.to_csv(
         index=False
-    ).encode(
-        "utf-8"
-    )
+    ).encode("utf-8")
 
 
     with download_col1:
 
         st.download_button(
-            "⬇ Download CSV",
+            "Download CSV",
             data=csv_data,
             file_name="mc_filtered_results.csv",
             mime="text/csv",
@@ -1753,7 +1326,7 @@ if st.session_state.results:
     with download_col2:
 
         st.download_button(
-            "⬇ Download Excel",
+            "Download Excel",
             data=excel_buffer.getvalue(),
             file_name="mc_filtered_results.xlsx",
             mime=(
@@ -1777,9 +1350,34 @@ if st.session_state.results:
     if errors:
 
         with st.expander(
-            f"⚠ Search messages ({len(errors)})"
+            "⚠ Search messages"
         ):
 
             for error in errors:
 
                 st.write(error)
+
+
+# =========================================================
+# LOGOUT
+# =========================================================
+
+st.markdown(
+    "<br>",
+    unsafe_allow_html=True,
+)
+
+logout_col1, logout_col2, logout_col3 = st.columns(
+    [1, 1, 1]
+)
+
+with logout_col2:
+
+    if st.button(
+        "🔐 Sign Out",
+        use_container_width=True,
+    ):
+
+        logout_user()
+
+        st.rerun()
