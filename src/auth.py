@@ -7,8 +7,6 @@ import time
 
 import streamlit as st
 
-from src.database import get_user
-
 
 # =========================================================
 # SECURITY SETTINGS
@@ -40,7 +38,7 @@ def init_auth_state():
 
 
 # =========================================================
-# PASSWORD HASH
+# SHA256
 # =========================================================
 
 def hash_password(password: str) -> str:
@@ -51,23 +49,124 @@ def hash_password(password: str) -> str:
 
 
 # =========================================================
-# PASSWORD CHECK
+# GET ADMIN CREDENTIALS
 # =========================================================
 
-def verify_password(
+def get_admin_username() -> str:
+
+    try:
+
+        return str(
+            st.secrets.get(
+                "ADMIN_USERNAME",
+                "",
+            )
+        ).strip()
+
+    except Exception:
+
+        return ""
+
+
+def get_admin_password_hash() -> str:
+
+    try:
+
+        return str(
+            st.secrets.get(
+                "ADMIN_PASSWORD_HASH",
+                "",
+            )
+        ).strip()
+
+    except Exception:
+
+        return ""
+
+
+def get_admin_password() -> str:
+
+    try:
+
+        return str(
+            st.secrets.get(
+                "ADMIN_PASSWORD",
+                "",
+            )
+        )
+
+    except Exception:
+
+        return ""
+
+
+# =========================================================
+# CHECK ADMIN LOGIN
+# =========================================================
+
+def check_admin_credentials(
+    username: str,
     password: str,
-    stored_hash: str,
 ) -> bool:
 
-    if not password or not stored_hash:
+    configured_username = (
+        get_admin_username()
+    )
+
+    if not configured_username:
         return False
 
-    supplied_hash = hash_password(password)
+    if not hmac.compare_digest(
+        username.strip(),
+        configured_username,
+    ):
+        return False
 
-    return hmac.compare_digest(
-        supplied_hash,
-        str(stored_hash).strip(),
+    # -----------------------------------------------------
+    # OPTION 1
+    # Proper SHA256 hash
+    # -----------------------------------------------------
+
+    stored_hash = (
+        get_admin_password_hash()
     )
+
+    if stored_hash:
+
+        supplied_hash = hash_password(
+            password
+        )
+
+        if hmac.compare_digest(
+            supplied_hash,
+            stored_hash,
+        ):
+            return True
+
+    # -----------------------------------------------------
+    # OPTION 2
+    # Plain secret fallback
+    #
+    # This allows the current setup to work if you have:
+    #
+    # ADMIN_PASSWORD = "your-password"
+    #
+    # in Streamlit Secrets.
+    # -----------------------------------------------------
+
+    stored_password = (
+        get_admin_password()
+    )
+
+    if stored_password:
+
+        if hmac.compare_digest(
+            password,
+            stored_password,
+        ):
+            return True
+
+    return False
 
 
 # =========================================================
@@ -105,99 +204,10 @@ def seconds_remaining() -> int:
 
 
 # =========================================================
-# AUTHENTICATE USER
-# =========================================================
-
-def authenticate_user(
-    username: str,
-    password: str,
-) -> bool:
-
-    init_auth_state()
-
-    if is_locked():
-        return False
-
-    username = str(username).strip()
-
-    if not username or not password:
-        return False
-
-    try:
-
-        user = get_user(username)
-
-    except Exception:
-
-        return False
-
-    if not user:
-        _failed_login()
-        return False
-
-    # -----------------------------------------------------
-    # Check active status
-    # -----------------------------------------------------
-
-    active = user.get(
-        "active",
-        True,
-    )
-
-    if active is False:
-        _failed_login()
-        return False
-
-    # -----------------------------------------------------
-    # Verify password
-    # -----------------------------------------------------
-
-    stored_hash = user.get(
-        "password_hash",
-        "",
-    )
-
-    if not verify_password(
-        password,
-        stored_hash,
-    ):
-
-        _failed_login()
-        return False
-
-    # -----------------------------------------------------
-    # SUCCESS
-    # -----------------------------------------------------
-
-    st.session_state.authenticated = True
-
-    st.session_state.username = (
-        username
-    )
-
-    st.session_state.role = str(
-        user.get(
-            "role",
-            "user",
-        )
-    ).lower()
-
-    st.session_state.session_token = (
-        secrets.token_urlsafe(32)
-    )
-
-    st.session_state.login_attempts = 0
-
-    st.session_state.login_locked_until = 0.0
-
-    return True
-
-
-# =========================================================
 # FAILED LOGIN
 # =========================================================
 
-def _failed_login():
+def failed_login():
 
     attempts = int(
         st.session_state.get(
@@ -210,16 +220,64 @@ def _failed_login():
 
     if attempts >= MAX_LOGIN_ATTEMPTS:
 
+        st.session_state.login_attempts = 0
+
         st.session_state.login_locked_until = (
             time.time()
             + LOCKOUT_SECONDS
         )
 
-        st.session_state.login_attempts = 0
-
     else:
 
         st.session_state.login_attempts = attempts
+
+
+# =========================================================
+# LOGIN
+# =========================================================
+
+def login_user(
+    username: str,
+    password: str,
+) -> bool:
+
+    init_auth_state()
+
+    if is_locked():
+        return False
+
+    username = str(username).strip()
+
+    if not username or not password:
+        failed_login()
+        return False
+
+    if check_admin_credentials(
+        username,
+        password,
+    ):
+
+        st.session_state.authenticated = True
+
+        st.session_state.username = (
+            username
+        )
+
+        st.session_state.role = "admin"
+
+        st.session_state.session_token = (
+            secrets.token_urlsafe(32)
+        )
+
+        st.session_state.login_attempts = 0
+
+        st.session_state.login_locked_until = 0.0
+
+        return True
+
+    failed_login()
+
+    return False
 
 
 # =========================================================
@@ -252,8 +310,6 @@ def is_authenticated() -> bool:
 
 def is_admin() -> bool:
 
-    init_auth_state()
-
     return bool(
         is_authenticated()
         and st.session_state.get(
@@ -274,44 +330,33 @@ def logout_user():
     st.session_state.username = ""
     st.session_state.role = ""
     st.session_state.session_token = ""
+
     st.session_state.login_attempts = 0
     st.session_state.login_locked_until = 0.0
 
 
 # =========================================================
-# LOGIN CSS
+# LOGIN SCREEN
 # =========================================================
 
-def _login_css():
+def require_login() -> bool:
+
+    init_auth_state()
+
+    if is_authenticated():
+        return True
+
+    # =====================================================
+    # LOGIN CSS
+    # =====================================================
 
     st.markdown(
         """
 <style>
 
-.stApp {
-    background:
-        radial-gradient(
-            circle at 20% 20%,
-            rgba(90,110,255,0.18),
-            transparent 35%
-        ),
-        radial-gradient(
-            circle at 80% 20%,
-            rgba(180,70,255,0.15),
-            transparent 35%
-        ),
-        linear-gradient(
-            135deg,
-            #05060a,
-            #0b0d14,
-            #05060a
-        );
-}
-
-/* LOGIN CARD */
-
 .login-card {
     max-width: 520px;
+
     margin: 9vh auto 25px auto;
 
     padding: 42px;
@@ -326,35 +371,37 @@ def _login_css():
         );
 
     border:
-        1px solid rgba(255,255,255,0.14);
+        1px solid
+        rgba(255,255,255,0.14);
 
     box-shadow:
-        0 30px 100px rgba(0,0,0,0.55),
-        inset 0 1px 0 rgba(255,255,255,0.08);
+        0 30px 100px
+        rgba(0,0,0,0.55),
 
-    backdrop-filter: blur(30px);
-    -webkit-backdrop-filter: blur(30px);
+        inset 0 1px 0
+        rgba(255,255,255,0.08);
+
+    backdrop-filter:
+        blur(30px);
 
     text-align: center;
 }
 
-/* LOCK */
-
 .login-lock {
-    font-size: 3.2rem;
+    font-size: 3rem;
+
     margin-bottom: 10px;
 
     filter:
         drop-shadow(
             0 0 18px
-            rgba(120,140,255,0.65)
+            rgba(120,140,255,0.7)
         );
 }
 
-/* TITLE */
-
 .login-title {
     font-size: 2.4rem;
+
     font-weight: 850;
 
     background:
@@ -369,47 +416,56 @@ def _login_css():
     -webkit-text-fill-color: transparent;
 }
 
-/* SUBTITLE */
-
 .login-subtitle {
     color: #9da6c0;
+
     margin-top: 7px;
+
     margin-bottom: 5px;
 }
 
-/* INPUT */
-
 div[data-baseweb="input"] {
-    border-radius: 16px !important;
+
+    border-radius:
+        16px !important;
 
     background:
-        rgba(255,255,255,0.055) !important;
+        rgba(255,255,255,0.055)
+        !important;
 
     border:
-        1px solid rgba(255,255,255,0.13) !important;
+        1px solid
+        rgba(255,255,255,0.13)
+        !important;
 }
 
 div[data-baseweb="input"]:focus-within {
+
     border-color:
-        rgba(110,135,255,0.9) !important;
+        rgba(110,135,255,0.9)
+        !important;
 
     box-shadow:
-        0 0 0 3px rgba(100,125,255,0.12),
-        0 0 30px rgba(80,100,255,0.18);
+        0 0 0 3px
+        rgba(100,125,255,0.12),
+
+        0 0 30px
+        rgba(80,100,255,0.18);
 }
 
 input {
     color: white !important;
 }
 
-/* BUTTON */
-
 .stButton > button {
+
     min-height: 52px;
 
-    border-radius: 17px !important;
+    border-radius:
+        17px !important;
 
-    font-weight: 750 !important;
+    font-weight:
+        750 !important;
 
     transition:
         transform .2s ease,
@@ -417,6 +473,7 @@ input {
 }
 
 .stButton > button:hover {
+
     transform:
         translateY(-2px)
         scale(1.01);
@@ -431,23 +488,9 @@ input {
         unsafe_allow_html=True,
     )
 
-
-# =========================================================
-# LOGIN PAGE
-# =========================================================
-
-def require_login() -> bool:
-
-    init_auth_state()
-
-    if is_authenticated():
-        return True
-
-    _login_css()
-
-    # -----------------------------------------------------
-    # CARD
-    # -----------------------------------------------------
+    # =====================================================
+    # LOGIN CARD
+    # =====================================================
 
     st.markdown(
         """
@@ -470,9 +513,9 @@ def require_login() -> bool:
         unsafe_allow_html=True,
     )
 
-    # -----------------------------------------------------
-    # LOCKED
-    # -----------------------------------------------------
+    # =====================================================
+    # LOCKOUT
+    # =====================================================
 
     if is_locked():
 
@@ -487,28 +530,24 @@ def require_login() -> bool:
 
         st.stop()
 
-    # -----------------------------------------------------
+    # =====================================================
     # LOGIN FORM
-    #
-    # IMPORTANT:
-    # We do NOT modify username/password widget
-    # state after these widgets are created.
-    # -----------------------------------------------------
+    # =====================================================
 
     with st.form(
-        "administrator_login",
+        "mc_admin_login",
         clear_on_submit=False,
     ):
 
         username = st.text_input(
             "Username",
-            placeholder="Enter administrator username",
+            placeholder="Administrator username",
         )
 
         password = st.text_input(
             "Password",
             type="password",
-            placeholder="Enter administrator password",
+            placeholder="Administrator password",
         )
 
         submitted = st.form_submit_button(
@@ -517,13 +556,13 @@ def require_login() -> bool:
             use_container_width=True,
         )
 
-    # -----------------------------------------------------
-    # LOGIN PROCESS
-    # -----------------------------------------------------
+    # =====================================================
+    # SUBMIT
+    # =====================================================
 
     if submitted:
 
-        if authenticate_user(
+        if login_user(
             username,
             password,
         ):
@@ -532,7 +571,7 @@ def require_login() -> bool:
                 "✓ Authentication successful."
             )
 
-            time.sleep(0.35)
+            time.sleep(0.3)
 
             st.rerun()
 
