@@ -1,3 +1,4 @@
+```python
 import io
 import time
 
@@ -40,6 +41,12 @@ if "searched_count" not in st.session_state:
 
 if "clearing" not in st.session_state:
     st.session_state.clearing = False
+
+if "status_filter" not in st.session_state:
+    st.session_state.status_filter = "All"
+
+if "type_filter" not in st.session_state:
+    st.session_state.type_filter = "All"
 
 
 # =========================================================
@@ -140,7 +147,6 @@ h2, h3 {
         );
 
     border:
-
         1px solid
         rgba(255,255,255,0.12);
 
@@ -586,7 +592,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 st.markdown(
     "### 🎯 Search Control"
 )
@@ -676,8 +681,6 @@ st.markdown(
 
 if clear_button:
 
-    # Show black hole
-
     st.markdown(
         """
         <div class="black-hole"></div>
@@ -698,6 +701,10 @@ if clear_button:
     st.session_state.current_mc = None
 
     st.session_state.start_mc = ""
+
+    st.session_state.status_filter = "All"
+
+    st.session_state.type_filter = "All"
 
     st.rerun()
 
@@ -738,15 +745,35 @@ if start_button:
         st.stop()
 
 
+    # -----------------------------------------------------
+    # Maximum 7 digits
+    # -----------------------------------------------------
+
+    if len(cleaned) > 7:
+
+        st.error(
+            "MC number cannot contain more than 7 digits."
+        )
+
+        st.stop()
+
+
+    # -----------------------------------------------------
+    # Preserve MC exactly as entered.
+    # DO NOT convert to int.
+    # -----------------------------------------------------
+
     st.session_state.start_mc = cleaned
 
-    st.session_state.current_mc = int(
-        cleaned
-    )
+    st.session_state.current_mc = cleaned
 
     st.session_state.results = []
 
     st.session_state.searched_count = 0
+
+    st.session_state.status_filter = "All"
+
+    st.session_state.type_filter = "All"
 
     st.session_state.running = True
 
@@ -759,6 +786,10 @@ if start_button:
 
 if st.session_state.running:
 
+    display_current = str(
+        st.session_state.current_mc
+    )
+
     st.markdown(
         f"""
         <div class="glass-card">
@@ -766,7 +797,7 @@ if st.session_state.running:
         <span class="live-dot"></span>
 
         <b>Searching MC
-        {st.session_state.current_mc:,}
+        {display_current}
         </b>
 
         <br>
@@ -808,7 +839,7 @@ elif st.session_state.searched_count > 0:
 
 if st.session_state.running:
 
-    current_mc = (
+    current_mc = str(
         st.session_state.current_mc
     )
 
@@ -818,7 +849,7 @@ if st.session_state.running:
     # -----------------------------------------------------
 
     result = search_one(
-        str(current_mc)
+        current_mc
     )
 
 
@@ -835,11 +866,41 @@ if st.session_state.running:
 
     # -----------------------------------------------------
     # Next MC
+    #
+    # Keep the original digit width whenever possible.
+    #
+    # Example:
+    # 0001 → 0002
+    # 0099 → 0100
     # -----------------------------------------------------
 
-    st.session_state.current_mc = (
-        current_mc + 1
-    )
+    try:
+
+        next_mc_number = (
+            int(current_mc) + 1
+        )
+
+        next_mc = str(
+            next_mc_number
+        ).zfill(
+            len(current_mc)
+        )
+
+        # Do not allow more than 7 digits.
+
+        if len(next_mc) > 7:
+
+            st.session_state.running = False
+
+        else:
+
+            st.session_state.current_mc = (
+                next_mc
+            )
+
+    except ValueError:
+
+        st.session_state.running = False
 
 
     # -----------------------------------------------------
@@ -855,7 +916,9 @@ if st.session_state.running:
     # RERUN
     # -----------------------------------------------------
 
-    st.rerun()
+    if st.session_state.running:
+
+        st.rerun()
 
 
 # =========================================================
@@ -950,6 +1013,27 @@ if st.session_state.results:
 
 
     # =====================================================
+    # NORMALIZE FILTER COLUMNS
+    # =====================================================
+
+    df["Operating Status"] = (
+        df["Operating Status"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+
+    df["Broker/Carrier"] = (
+        df["Broker/Carrier"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+
+
+    # =====================================================
     # METRICS
     # =====================================================
 
@@ -1012,6 +1096,83 @@ if st.session_state.results:
 
 
     # =====================================================
+    # FILTERS
+    # =====================================================
+
+    st.markdown(
+        "#### 🔎 Filter Results"
+    )
+
+
+    filter_col1, filter_col2 = st.columns(
+        2
+    )
+
+
+    with filter_col1:
+
+        status_filter = st.selectbox(
+            "Operating Status",
+            options=[
+                "All",
+                "Active",
+                "Inactive",
+            ],
+            key="status_filter",
+        )
+
+
+    with filter_col2:
+
+        type_filter = st.selectbox(
+            "Broker / Carrier",
+            options=[
+                "All",
+                "Broker",
+                "Carrier",
+            ],
+            key="type_filter",
+        )
+
+
+    # =====================================================
+    # APPLY FILTERS
+    # =====================================================
+
+    filtered_df = df.copy()
+
+
+    if status_filter != "All":
+
+        filtered_df = filtered_df[
+            filtered_df[
+                "Operating Status"
+            ]
+            == status_filter.upper()
+        ]
+
+
+    if type_filter != "All":
+
+        filtered_df = filtered_df[
+            filtered_df[
+                "Broker/Carrier"
+            ]
+            == type_filter.upper()
+        ]
+
+
+    # =====================================================
+    # FILTER SUMMARY
+    # =====================================================
+
+    st.caption(
+        f"Showing {len(filtered_df):,} "
+        f"of {len(df):,} searched MC result(s)."
+    )
+
+
+    # =====================================================
     # TABLE COLORS
     # =====================================================
 
@@ -1054,7 +1215,7 @@ if st.session_state.results:
 
 
     styled_df = (
-        df.style
+        filtered_df.style
         .map(
             color_status,
             subset=[
@@ -1094,7 +1255,13 @@ if st.session_state.results:
 
 
     st.markdown(
-        "### ⬇ Export"
+        "### ⬇ Export Filtered Results"
+    )
+
+
+    st.caption(
+        "Downloads contain only the results currently "
+        "shown by the filters above."
     )
 
 
@@ -1107,10 +1274,10 @@ if st.session_state.results:
     # CSV
     # =====================================================
 
-    csv_data = df.to_csv(
-        index=False
-    ).encode(
-        "utf-8"
+    csv_data = (
+        filtered_df
+        .to_csv(index=False)
+        .encode("utf-8")
     )
 
 
@@ -1119,7 +1286,7 @@ if st.session_state.results:
         st.download_button(
             "Download CSV",
             data=csv_data,
-            file_name="mc_results.csv",
+            file_name="mc_filtered_results.csv",
             mime="text/csv",
             use_container_width=True,
         )
@@ -1137,7 +1304,7 @@ if st.session_state.results:
         engine="openpyxl",
     ) as writer:
 
-        df.to_excel(
+        filtered_df.to_excel(
             writer,
             index=False,
             sheet_name="MC Results",
@@ -1149,7 +1316,7 @@ if st.session_state.results:
         st.download_button(
             "Download Excel",
             data=excel_buffer.getvalue(),
-            file_name="mc_results.xlsx",
+            file_name="mc_filtered_results.xlsx",
             mime=(
                 "application/vnd.openxmlformats-officedocument."
                 "spreadsheetml.sheet"
@@ -1177,3 +1344,4 @@ if st.session_state.results:
             for error in errors:
 
                 st.write(error)
+```
