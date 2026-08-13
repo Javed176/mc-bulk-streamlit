@@ -9,17 +9,13 @@ import requests
 from bs4 import BeautifulSoup
 
 
-# ---------------------------------------------------------
+# =========================================================
 # CONSTANTS
-# ---------------------------------------------------------
+# =========================================================
 
-SAFER_BASE = (
-    "https://safer.fmcsa.dot.gov/query.asp"
-)
+SAFER_BASE = "https://safer.fmcsa.dot.gov/query.asp"
 
-DOTSEARCH_BASE = (
-    "https://www.dotsearch.io/dot/"
-)
+DOTSEARCH_BASE = "https://www.dotsearch.io/dot/"
 
 DEFAULT_TIMEOUT = 20
 
@@ -35,13 +31,15 @@ HEADERS = {
 }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # NORMALIZE IDENTIFIER
-# ---------------------------------------------------------
+# =========================================================
 
-def normalize_identifier(
-    value: str,
-) -> str:
+def normalize_identifier(value: str) -> str:
+    """
+    Remove spaces, hyphens and special characters
+    and convert the identifier to uppercase.
+    """
 
     return re.sub(
         r"[^A-Za-z0-9]",
@@ -50,68 +48,120 @@ def normalize_identifier(
     )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # IDENTIFIER TYPE
-# ---------------------------------------------------------
+# =========================================================
 
-def classify_identifier(
-    value: str,
-) -> str:
+def classify_identifier(value: str) -> str:
+    """
+    Identify whether the input is MC, MX, FF or DOT.
+
+    Examples:
+
+    MC123456  -> MC
+    MX123456  -> MX
+    FF123456  -> FF
+    DOT123456 -> DOT
+    USDOT123  -> DOT
+    123456    -> MC
+    """
 
     raw = str(value or "").strip().upper()
 
-    compact = normalize_identifier(
-        raw
-    )
+    compact = normalize_identifier(raw)
 
-    # Plain numbers are assumed to be MC.
+    # Plain numeric values are treated as MC.
     if compact.isdigit():
-
         return "MC"
 
-
-    if compact.startswith(
-        "USDOT"
-    ):
-
+    if compact.startswith("USDOT"):
         return "DOT"
 
-
-    if compact.startswith(
-        "DOT"
-    ):
-
+    if compact.startswith("DOT"):
         return "DOT"
 
+    if compact.startswith("MC"):
+        return "MC"
 
-    if compact.startswith(
-        ("MC", "MX", "FF")
-    ):
+    if compact.startswith("MX"):
+        return "MX"
 
-        return compact[:2]
-
+    if compact.startswith("FF"):
+        return "FF"
 
     return "UNKNOWN"
 
 
-# ---------------------------------------------------------
+# =========================================================
 # SAFER URL
-# ---------------------------------------------------------
+# =========================================================
 
 def safer_url(
     identifier: str,
 ) -> str:
+    """
+    Build an FMCSA SAFER Company Snapshot URL.
 
-    kind = classify_identifier(
-        identifier
-    )
+    IMPORTANT:
+    Bare numeric inputs are treated as MC numbers.
 
-    value = normalize_identifier(
-        identifier
-    )
+    Example:
+        1066434
+    becomes:
+        MC = 1066434
 
+    The previous version incorrectly removed
+    the first two digits from bare numbers.
+    """
 
-    if kind == "DOT":
+    kind = classify_identifier(identifier)
+
+    value = normalize_identifier(identifier)
+
+    # -----------------------------------------------------
+    # MC
+    # -----------------------------------------------------
+
+    if kind == "MC":
+
+        query_param = "MC"
+
+        if value.startswith("MC"):
+            query_string = value[2:]
+        else:
+            query_string = value
+
+    # -----------------------------------------------------
+    # MX
+    # -----------------------------------------------------
+
+    elif kind == "MX":
+
+        query_param = "MX"
+
+        if value.startswith("MX"):
+            query_string = value[2:]
+        else:
+            query_string = value
+
+    # -----------------------------------------------------
+    # FF
+    # -----------------------------------------------------
+
+    elif kind == "FF":
+
+        query_param = "FF"
+
+        if value.startswith("FF"):
+            query_string = value[2:]
+        else:
+            query_string = value
+
+    # -----------------------------------------------------
+    # DOT / USDOT
+    # -----------------------------------------------------
+
+    elif kind == "DOT":
 
         query_param = "USDOT"
 
@@ -121,17 +171,9 @@ def safer_url(
             .replace("DOT", "")
         )
 
-
-    elif kind in {
-        "MC",
-        "MX",
-        "FF",
-    }:
-
-        query_param = kind
-
-        query_string = value[2:]
-
+    # -----------------------------------------------------
+    # UNKNOWN
+    # -----------------------------------------------------
 
     else:
 
@@ -139,29 +181,25 @@ def safer_url(
 
         query_string = value
 
-
     return (
         f"{SAFER_BASE}"
-        f"?original_query_param="
-        f"{quote_plus(query_param)}"
-        f"&original_query_string="
-        f"{quote_plus(query_string)}"
-        f"&query_param="
-        f"{quote_plus(query_param)}"
-        f"&query_string="
-        f"{quote_plus(query_string)}"
+        f"?searchtype=ANY"
         f"&query_type=queryCarrierSnapshot"
-        f"&searchtype=ANY"
+        f"&query_param={quote_plus(query_param)}"
+        f"&query_string={quote_plus(query_string)}"
     )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # DOTSEARCH URL
-# ---------------------------------------------------------
+# =========================================================
 
 def dotsearch_url(
     dot_number: str,
 ) -> str:
+    """
+    Build a DotSearch URL from a DOT number.
+    """
 
     clean_dot = normalize_identifier(
         dot_number
@@ -179,13 +217,16 @@ def dotsearch_url(
     )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # CLEAN TEXT
-# ---------------------------------------------------------
+# =========================================================
 
 def _clean(
     text: Optional[str],
 ) -> str:
+    """
+    Normalize whitespace.
+    """
 
     return re.sub(
         r"\s+",
@@ -194,17 +235,19 @@ def _clean(
     )
 
 
-# ---------------------------------------------------------
-# EXTRACT VALUE AFTER LABEL
-# ---------------------------------------------------------
+# =========================================================
+# TEXT AFTER LABEL
+# =========================================================
 
 def _text_after_label(
     soup: BeautifulSoup,
     label: str,
 ) -> str:
+    """
+    Attempt to extract text following a known label.
+    """
 
     target = label.strip().upper()
-
 
     for text_node in soup.find_all(
         string=lambda s:
@@ -219,7 +262,6 @@ def _text_after_label(
                 strip=True,
             )
         )
-
 
         if (
             value
@@ -236,22 +278,26 @@ def _text_after_label(
             if remainder:
                 return remainder
 
-
     return ""
 
 
-# ---------------------------------------------------------
-# CARRIER PARSER
-# ---------------------------------------------------------
+# =========================================================
+# PARSE SAFER COMPANY SNAPSHOT
+# =========================================================
 
 def _parse_carrier_snapshot(
     html: str,
     input_id: str,
 ) -> Dict[str, str]:
+    """
+    Parse a SAFER Company Snapshot HTML page.
+    """
 
+    # html.parser is used instead of lxml
+    # to avoid extra dependency problems on Streamlit.
     soup = BeautifulSoup(
         html,
-       "html.parser",
+        "html.parser",
     )
 
     page_text = _clean(
@@ -261,56 +307,32 @@ def _parse_carrier_snapshot(
         )
     )
 
-
     result = {
-
         "input_id": input_id,
-
         "status": "NOT FOUND",
-
         "legal_name": "",
-
         "dba_name": "",
-
         "dot_number": "",
-
         "mc_number": "",
-
         "entity_type": "",
-
         "usdot_status": "",
-
         "out_of_service_date": "",
-
         "operating_authority_status": "",
-
         "physical_address": "",
-
         "mailing_address": "",
-
         "phone": "",
-
         "power_units": "",
-
         "drivers": "",
-
         "mcs150_form_date": "",
-
         "mcs150_mileage": "",
-
-        "safer_url": safer_url(
-            input_id
-        ),
-
+        "safer_url": safer_url(input_id),
         "dotsearch_url": "",
-
         "error": "",
     }
 
-
-    # -----------------------------------------------------
-    # CHECK PAGE
-    # -----------------------------------------------------
+    # =====================================================
+    # CHECK IF A CARRIER PAGE WAS RETURNED
+    # =====================================================
 
     if (
         "COMPANY SNAPSHOT" not in page_text.upper()
@@ -323,18 +345,15 @@ def _parse_carrier_snapshot(
 
         return result
 
-
     result["status"] = "FOUND"
 
-
-    # -----------------------------------------------------
+    # =====================================================
     # COMPANY NAME
-    # -----------------------------------------------------
+    # =====================================================
 
     headings = soup.find_all(
         ["h1", "h2", "h3"]
     )
-
 
     for heading in headings:
 
@@ -345,7 +364,6 @@ def _parse_carrier_snapshot(
             )
         )
 
-
         if (
             candidate
             and candidate.upper()
@@ -355,16 +373,13 @@ def _parse_carrier_snapshot(
             }
         ):
 
-            result["legal_name"] = (
-                candidate
-            )
+            result["legal_name"] = candidate
 
             break
 
-
-    # -----------------------------------------------------
+    # =====================================================
     # REGEX HELPER
-    # -----------------------------------------------------
+    # =====================================================
 
     def regex_value(
         pattern: str,
@@ -383,15 +398,17 @@ def _parse_carrier_snapshot(
             match.group(1)
         )
 
-
-    # -----------------------------------------------------
-    # BASIC FIELDS
-    # -----------------------------------------------------
+    # =====================================================
+    # DOT NUMBER
+    # =====================================================
 
     result["dot_number"] = regex_value(
         r"USDOT Number\s*[:#]?\s*(\d+)"
     )
 
+    # =====================================================
+    # MC / MX / FF NUMBER
+    # =====================================================
 
     result["mc_number"] = regex_value(
         r"MC/MX/FF Number\(s\)"
@@ -402,6 +419,9 @@ def _parse_carrier_snapshot(
         r"POWER UNITS|DRIVERS)\b|$)"
     )
 
+    # =====================================================
+    # ENTITY TYPE
+    # =====================================================
 
     result["entity_type"] = regex_value(
         r"ENTITY TYPE\s*[:]?\s*"
@@ -409,6 +429,9 @@ def _parse_carrier_snapshot(
         r"(?=\s+USDOT STATUS\b)"
     )
 
+    # =====================================================
+    # USDOT STATUS
+    # =====================================================
 
     result["usdot_status"] = regex_value(
         r"USDOT Status\s*[:]?\s*"
@@ -416,15 +439,19 @@ def _parse_carrier_snapshot(
         r"(?=\s+Out of Service Date\b)"
     )
 
+    # =====================================================
+    # OUT OF SERVICE DATE
+    # =====================================================
 
-    result["out_of_service_date"] = (
-        regex_value(
-            r"Out of Service Date"
-            r"\s*[:]?\s*"
-            r"([A-Z0-9/\-]+|None)"
-        )
+    result["out_of_service_date"] = regex_value(
+        r"Out of Service Date"
+        r"\s*[:]?\s*"
+        r"([A-Z0-9/\-]+|None)"
     )
 
+    # =====================================================
+    # OPERATING AUTHORITY
+    # =====================================================
 
     result["operating_authority_status"] = (
         regex_value(
@@ -435,44 +462,54 @@ def _parse_carrier_snapshot(
         )
     )
 
+    # =====================================================
+    # PHONE
+    # =====================================================
 
     result["phone"] = regex_value(
         r"Phone\s*[:]?\s*"
         r"(\(?\d{3}\)?[- .]\d{3}[- .]\d{4})"
     )
 
+    # =====================================================
+    # POWER UNITS
+    # =====================================================
 
     result["power_units"] = regex_value(
         r"Power Units\s*[:]?\s*([\d,]+)"
     )
 
+    # =====================================================
+    # DRIVERS
+    # =====================================================
 
     result["drivers"] = regex_value(
         r"Drivers\s*[:]?\s*([\d,]+)"
     )
 
+    # =====================================================
+    # MCS-150 FORM DATE
+    # =====================================================
 
-    result["mcs150_form_date"] = (
-        regex_value(
-            r"MCS-150 Form Date"
-            r"\s*[:]?\s*"
-            r"([0-9/\-]+)"
-        )
+    result["mcs150_form_date"] = regex_value(
+        r"MCS-150 Form Date"
+        r"\s*[:]?\s*"
+        r"([0-9/\-]+)"
     )
 
+    # =====================================================
+    # MCS-150 MILEAGE
+    # =====================================================
 
-    result["mcs150_mileage"] = (
-        regex_value(
-            r"MCS-150 Mileage"
-            r".*?"
-            r"\s([\d,]+)\s*\("
-        )
+    result["mcs150_mileage"] = regex_value(
+        r"MCS-150 Mileage"
+        r".*?"
+        r"\s([\d,]+)\s*\("
     )
 
-
-    # -----------------------------------------------------
+    # =====================================================
     # ADDRESSES
-    # -----------------------------------------------------
+    # =====================================================
 
     for key, label in (
         (
@@ -490,7 +527,6 @@ def _parse_carrier_snapshot(
             label,
         )
 
-
         if value:
 
             value = re.sub(
@@ -506,21 +542,18 @@ def _parse_carrier_snapshot(
                 flags=re.I,
             )
 
-
             result[key] = _clean(
                 value
             )
 
-
-    # -----------------------------------------------------
+    # =====================================================
     # MC FALLBACK
-    # -----------------------------------------------------
+    # =====================================================
 
     if (
         not result["mc_number"]
-        and classify_identifier(
-            input_id
-        ) in {
+        and classify_identifier(input_id)
+        in {
             "MC",
             "MX",
             "FF",
@@ -533,10 +566,9 @@ def _parse_carrier_snapshot(
             )
         )
 
-
-    # -----------------------------------------------------
+    # =====================================================
     # DOTSEARCH URL
-    # -----------------------------------------------------
+    # =====================================================
 
     if result["dot_number"]:
 
@@ -546,10 +578,9 @@ def _parse_carrier_snapshot(
             )
         )
 
-
-    # -----------------------------------------------------
-    # TITLE FALLBACK
-    # -----------------------------------------------------
+    # =====================================================
+    # COMPANY NAME FALLBACK
+    # =====================================================
 
     if not result["legal_name"]:
 
@@ -564,7 +595,6 @@ def _parse_carrier_snapshot(
                 )
             )
 
-
         result["legal_name"] = re.sub(
             r"\s*[-|]\s*"
             r"(SAFER|FMCSA).*$",
@@ -573,13 +603,12 @@ def _parse_carrier_snapshot(
             flags=re.I,
         )
 
-
     return result
 
 
-# ---------------------------------------------------------
+# =========================================================
 # FETCH ONE
-# ---------------------------------------------------------
+# =========================================================
 
 def fetch_one(
     identifier: str,
@@ -588,11 +617,13 @@ def fetch_one(
     ] = None,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> Dict[str, str]:
+    """
+    Fetch one MC/DOT record from FMCSA SAFER.
+    """
 
     identifier = str(
         identifier
     ).strip()
-
 
     if not identifier:
 
@@ -602,13 +633,11 @@ def fetch_one(
             "error": "Blank input.",
         }
 
-
     sess = (
         session
         if session
         else requests.Session()
     )
-
 
     try:
 
@@ -620,27 +649,19 @@ def fetch_one(
 
         response.raise_for_status()
 
-
         return _parse_carrier_snapshot(
             response.text,
             identifier,
         )
 
-
     except requests.RequestException as exc:
 
         return {
-
             "input_id": identifier,
-
             "status": "ERROR",
-
             "legal_name": "",
-
             "dba_name": "",
-
             "dot_number": "",
-
             "mc_number": (
                 normalize_identifier(
                     identifier
@@ -650,48 +671,40 @@ def fetch_one(
                 ) != "DOT"
                 else ""
             ),
-
             "entity_type": "",
-
             "usdot_status": "",
-
             "out_of_service_date": "",
-
             "operating_authority_status": "",
-
             "physical_address": "",
-
             "mailing_address": "",
-
             "phone": "",
-
             "power_units": "",
-
             "drivers": "",
-
             "mcs150_form_date": "",
-
             "mcs150_mileage": "",
-
             "safer_url": safer_url(
                 identifier
             ),
-
             "dotsearch_url": "",
-
             "error": str(exc),
         }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # BULK FETCH
-# ---------------------------------------------------------
+# =========================================================
 
 def bulk_fetch(
     identifiers,
     delay_seconds: float = 1.0,
     progress_callback=None,
 ) -> list[Dict[str, str]]:
+    """
+    Search multiple identifiers sequentially.
+
+    A delay is included between requests to avoid
+    aggressively hitting the public website.
+    """
 
     session = requests.Session()
 
@@ -700,7 +713,6 @@ def bulk_fetch(
     total = len(
         identifiers
     )
-
 
     for index, identifier in enumerate(
         identifiers,
@@ -716,14 +728,12 @@ def bulk_fetch(
             result
         )
 
-
         if progress_callback:
 
             progress_callback(
                 index,
                 total,
             )
-
 
         if (
             index < total
@@ -733,6 +743,5 @@ def bulk_fetch(
             time.sleep(
                 delay_seconds
             )
-
 
     return results
