@@ -251,7 +251,7 @@ def _parse_carrier_snapshot(
 
     soup = BeautifulSoup(
         html,
-        "lxml",
+       "html.parser",
     )
 
     page_text = _clean(
