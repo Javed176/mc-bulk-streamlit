@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import secrets
 import time
-import textwrap
 
 import streamlit as st
 
@@ -48,44 +47,72 @@ def hash_password(password: str) -> str:
 
 
 # =========================================================
+# GET ADMIN USERNAME
+# =========================================================
+
+def get_admin_username() -> str:
+
+    try:
+        username = st.secrets.get(
+            "ADMIN_USERNAME",
+            "",
+        )
+    except Exception:
+        username = ""
+
+    return str(username).strip()
+
+
+# =========================================================
 # GET PASSWORD HASH
 # =========================================================
 
 def get_password_hash() -> str:
 
     try:
-
         value = st.secrets.get(
             "ADMIN_PASSWORD_HASH",
             "",
         )
-
     except Exception:
-
         value = ""
 
     return str(value).strip()
 
 
 # =========================================================
-# CHECK PASSWORD
+# CHECK CREDENTIALS
 # =========================================================
 
-def check_password(password: str) -> bool:
+def check_credentials(
+    username: str,
+    password: str,
+) -> bool:
 
-    stored_hash = get_password_hash()
+    stored_username = get_admin_username()
+    stored_password_hash = get_password_hash()
 
-    if not stored_hash:
+    if not stored_username:
         return False
+
+    if not stored_password_hash:
+        return False
+
+    username_ok = hmac.compare_digest(
+        str(username).strip(),
+        stored_username,
+    )
 
     supplied_hash = hash_password(
         password
     )
 
-    return hmac.compare_digest(
+    password_ok = hmac.compare_digest(
         supplied_hash,
-        stored_hash,
+        stored_password_hash,
     )
+
+    return username_ok and password_ok
 
 
 # =========================================================
@@ -106,15 +133,13 @@ def is_locked() -> bool:
 
 def seconds_remaining() -> int:
 
-    locked_until = float(
-        st.session_state.get(
-            "login_locked_until",
-            0.0,
-        )
-    )
-
     remaining = (
-        locked_until
+        float(
+            st.session_state.get(
+                "login_locked_until",
+                0.0,
+            )
+        )
         - time.time()
     )
 
@@ -128,14 +153,20 @@ def seconds_remaining() -> int:
 # LOGIN
 # =========================================================
 
-def login_user(password: str) -> bool:
+def login_user(
+    username: str,
+    password: str,
+) -> bool:
 
     init_auth_state()
 
     if is_locked():
         return False
 
-    if check_password(password):
+    if check_credentials(
+        username,
+        password,
+    ):
 
         st.session_state.authenticated = True
 
@@ -143,12 +174,14 @@ def login_user(password: str) -> bool:
 
         st.session_state.login_locked_until = 0.0
 
+        # Generate a fresh random session token.
         st.session_state.session_token = (
             secrets.token_urlsafe(32)
         )
 
         return True
 
+    # Failed login
     st.session_state.login_attempts += 1
 
     if (
@@ -203,159 +236,240 @@ def require_login():
 
     init_auth_state()
 
-    # -----------------------------------------------------
     # Already authenticated
-    # -----------------------------------------------------
-
     if is_authenticated():
         return True
 
-
     # =====================================================
-    # LOGIN PAGE CSS
+    # LOGIN CSS
     # =====================================================
 
     st.markdown(
-        textwrap.dedent(
-            """
-            <style>
+        """
+        <style>
 
-            .login-page {
-                max-width: 520px;
-                margin: 7vh auto 0 auto;
-            }
+        .login-wrapper {
+            max-width: 560px;
+            margin: 8vh auto 0 auto;
+        }
 
-            .login-card {
-                padding: 45px 40px;
-                border-radius: 30px;
+        .login-card {
+            padding: 42px 42px 34px 42px;
 
-                background:
-                    linear-gradient(
-                        135deg,
-                        rgba(255,255,255,0.12),
-                        rgba(255,255,255,0.035)
-                    );
+            border-radius: 30px;
 
-                border:
-                    1px solid
-                    rgba(255,255,255,0.14);
+            background:
+                linear-gradient(
+                    135deg,
+                    rgba(35,42,61,0.96),
+                    rgba(18,23,35,0.96)
+                );
 
-                box-shadow:
-                    0 30px 100px
-                    rgba(0,0,0,0.55),
+            border:
+                1px solid
+                rgba(255,255,255,0.16);
 
-                    inset 0 1px 0
-                    rgba(255,255,255,0.08);
+            box-shadow:
+                0 30px 100px
+                rgba(0,0,0,0.55),
 
-                backdrop-filter:
-                    blur(30px)
-                    saturate(160%);
+                inset 0 1px 0
+                rgba(255,255,255,0.08);
 
-                -webkit-backdrop-filter:
-                    blur(30px)
-                    saturate(160%);
+            backdrop-filter:
+                blur(30px);
 
-                text-align: center;
-            }
+            text-align: center;
+        }
 
-            .login-lock {
-                font-size: 3rem;
-                line-height: 1;
-                margin-bottom: 18px;
+        .login-lock {
+            font-size: 4.5rem;
+            line-height: 1;
+            margin-bottom: 18px;
 
+            filter:
+                drop-shadow(
+                    0 0 22px
+                    rgba(100,130,255,0.65)
+                );
+
+            animation:
+                loginGlow 2.5s
+                ease-in-out
+                infinite alternate;
+        }
+
+        @keyframes loginGlow {
+
+            from {
+                transform: scale(1);
                 filter:
                     drop-shadow(
-                        0 0 18px
-                        rgba(120,140,255,0.6)
+                        0 0 12px
+                        rgba(100,130,255,0.45)
                     );
             }
 
-            .login-title {
-                font-size: 2.4rem;
-                font-weight: 800;
-                letter-spacing: -0.04em;
-
-                background:
-                    linear-gradient(
-                        90deg,
-                        #ffffff,
-                        #b9c6ff,
-                        #ffffff
+            to {
+                transform: scale(1.06);
+                filter:
+                    drop-shadow(
+                        0 0 30px
+                        rgba(130,100,255,0.8)
                     );
-
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
             }
+        }
 
-            .login-subtitle {
-                color: #9da6c0;
-                margin-top: 8px;
-                margin-bottom: 30px;
-                font-size: 0.98rem;
-            }
+        .login-title {
+            font-size: 2.4rem;
+            font-weight: 850;
 
-            .login-security {
-                margin-top: 18px;
-                color: #69738e;
-                font-size: 0.78rem;
-            }
+            color: #c5d0ff;
 
-            </style>
-            """
-        ),
+            letter-spacing: -0.8px;
+
+            margin-bottom: 8px;
+        }
+
+        .login-subtitle {
+            color: #9da6c0;
+            font-size: 1rem;
+            margin-bottom: 4px;
+        }
+
+        .login-security {
+            margin-top: 18px;
+
+            color: #68728f;
+
+            font-size: 0.82rem;
+        }
+
+        div[data-testid="stTextInput"] {
+            margin-top: 18px;
+        }
+
+        div[data-testid="stTextInput"] input {
+            border-radius: 12px !important;
+            background: #242732 !important;
+            border: 1px solid #3b4050 !important;
+        }
+
+        div[data-testid="stButton"] > button {
+            border-radius: 13px !important;
+
+            min-height: 48px;
+
+            font-weight: 750;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #273b9f,
+                    #452071
+                ) !important;
+
+            border:
+                1px solid
+                rgba(130,140,255,0.45) !important;
+
+            box-shadow:
+                0 8px 30px
+                rgba(70,80,220,0.25);
+
+            transition:
+                all 0.2s ease;
+        }
+
+        div[data-testid="stButton"] > button:hover {
+
+            transform:
+                translateY(-2px);
+
+            box-shadow:
+                0 12px 40px
+                rgba(90,100,255,0.4);
+        }
+
+        </style>
+        """,
         unsafe_allow_html=True,
     )
 
-
     # =====================================================
-    # LOGIN CARD
-    #
-    # textwrap.dedent() is IMPORTANT.
-    # It prevents the HTML from becoming a Markdown
-    # code block.
-    # =====================================================
-
-    st.markdown(
-        textwrap.dedent(
-            """
-            <div class="login-page">
-
-            <div class="login-card">
-
-            <div class="login-lock">🔐</div>
-
-            <div class="login-title">✦ MC Search</div>
-
-            <div class="login-subtitle">
-            Secure access required
-            </div>
-
-            </div>
-
-            </div>
-            """
-        ),
-        unsafe_allow_html=True,
-    )
-
-
-    # =====================================================
-    # LOCKOUT
+    # LOCKOUT CHECK
     # =====================================================
 
     if is_locked():
 
+        st.markdown(
+            """
+            <div class="login-wrapper">
+                <div class="login-card">
+                    <div class="login-lock">🔒</div>
+
+                    <div class="login-title">
+                        MC Search
+                    </div>
+
+                    <div class="login-subtitle">
+                        Access temporarily locked
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
         st.error(
-            "🔒 Too many failed login attempts."
+            "Too many failed login attempts."
         )
 
         st.warning(
-            "Try again in "
+            f"Try again in "
             f"{seconds_remaining()} seconds."
         )
 
         st.stop()
 
+    # =====================================================
+    # LOGIN HEADER
+    # =====================================================
+
+    st.markdown(
+        """
+        <div class="login-wrapper">
+
+            <div class="login-card">
+
+                <div class="login-lock">
+                    🔐
+                </div>
+
+                <div class="login-title">
+                    ✦ MC Search
+                </div>
+
+                <div class="login-subtitle">
+                    Secure access required
+                </div>
+
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # =====================================================
+    # USERNAME
+    # =====================================================
+
+    username = st.text_input(
+        "Username",
+        placeholder="Enter your username",
+        autocomplete="username",
+    )
 
     # =====================================================
     # PASSWORD
@@ -365,73 +479,70 @@ def require_login():
         "Password",
         type="password",
         placeholder="Enter your password",
-        key="login_password",
+        autocomplete="current-password",
     )
-
 
     # =====================================================
     # SIGN IN
     # =====================================================
 
     login_button = st.button(
-        "🔐 Sign In",
+        "🔐  Sign In",
         type="primary",
         use_container_width=True,
     )
 
-
     if login_button:
 
-        if login_user(password):
+        if login_user(
+            username,
+            password,
+        ):
 
             st.success(
-                "✓ Authentication successful."
+                "Authenticated successfully."
             )
-
-            # Remove password from session state
-            # before rerunning.
-            if "login_password" in st.session_state:
-                del st.session_state["login_password"]
 
             st.rerun()
 
         else:
 
-            remaining_attempts = (
-                MAX_LOGIN_ATTEMPTS
-                - st.session_state.login_attempts
-            )
-
-            if remaining_attempts > 0:
+            if is_locked():
 
                 st.error(
-                    "Incorrect password."
-                )
-
-                st.caption(
-                    f"{remaining_attempts} "
-                    "attempt(s) remaining."
+                    "Too many failed attempts. "
+                    "Login temporarily locked."
                 )
 
             else:
 
-                st.error(
-                    "🔒 Too many failed attempts. "
-                    "Login temporarily locked."
+                remaining_attempts = (
+                    MAX_LOGIN_ATTEMPTS
+                    - st.session_state.login_attempts
                 )
 
+                st.error(
+                    "Incorrect username or password."
+                )
+
+                if remaining_attempts > 0:
+
+                    st.caption(
+                        f"{remaining_attempts} "
+                        "attempt(s) remaining."
+                    )
 
     # =====================================================
-    # SECURITY FOOTER
+    # FOOTER
     # =====================================================
 
     st.markdown(
         """
         <div style="
             text-align:center;
-            color:#69738e;
-            font-size:0.78rem;
-            margin-top:18px;
+            margin-top:38px;
+            color:#68728f;
+            font-size:0.82rem;
         ">
             🔐 Protected MC Search system
         </div>
