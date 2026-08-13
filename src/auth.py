@@ -48,7 +48,7 @@ def hash_password(password: str) -> str:
 
 
 # =========================================================
-# GET STORED PASSWORD HASH
+# STORED PASSWORD HASH
 # =========================================================
 
 def get_password_hash() -> str:
@@ -68,7 +68,7 @@ def get_password_hash() -> str:
 
 
 # =========================================================
-# CHECK PASSWORD
+# PASSWORD CHECK
 # =========================================================
 
 def check_password(password: str) -> bool:
@@ -98,7 +98,7 @@ def is_locked() -> bool:
     locked_until = float(
         st.session_state.get(
             "login_locked_until",
-            0,
+            0.0,
         )
     )
 
@@ -111,7 +111,7 @@ def seconds_remaining() -> int:
         float(
             st.session_state.get(
                 "login_locked_until",
-                0,
+                0.0,
             )
         )
         - time.time()
@@ -141,7 +141,7 @@ def login_user(password: str) -> bool:
 
         st.session_state.login_attempts = 0
 
-        st.session_state.login_locked_until = 0
+        st.session_state.login_locked_until = 0.0
 
         st.session_state.session_token = (
             secrets.token_urlsafe(32)
@@ -178,6 +178,8 @@ def logout_user():
 
     st.session_state.login_attempts = 0
 
+    st.session_state.login_locked_until = 0.0
+
 
 # =========================================================
 # AUTH CHECK
@@ -194,66 +196,197 @@ def is_authenticated() -> bool:
 
 
 # =========================================================
-# LOGIN SCREEN
+# LOGIN UI
 # =========================================================
 
 def require_login():
 
     init_auth_state()
 
+    # Already authenticated
     if is_authenticated():
 
         return True
+
+    # =====================================================
+    # LOGIN CSS
+    # =====================================================
 
     st.markdown(
         """
         <style>
 
         .login-card {
-            max-width: 480px;
-            margin: 10vh auto 0 auto;
-            padding: 42px;
-            border-radius: 30px;
+
+            max-width: 520px;
+
+            margin:
+                10vh auto 25px auto;
+
+            padding:
+                45px 40px;
+
+            border-radius:
+                30px;
 
             background:
                 linear-gradient(
                     135deg,
-                    rgba(255,255,255,0.11),
+                    rgba(255,255,255,0.12),
                     rgba(255,255,255,0.035)
                 );
 
             border:
                 1px solid
-                rgba(255,255,255,0.14);
+                rgba(255,255,255,0.15);
 
             box-shadow:
                 0 30px 100px
                 rgba(0,0,0,0.55),
 
                 inset 0 1px 0
-                rgba(255,255,255,0.08);
+                rgba(255,255,255,0.10);
 
             backdrop-filter:
-                blur(30px);
+                blur(30px)
+                saturate(160%);
+
+            -webkit-backdrop-filter:
+                blur(30px)
+                saturate(160%);
+
+            text-align:
+                center;
 
         }
+
 
         .login-title {
-            font-size: 2.3rem;
-            font-weight: 800;
-            color: white;
-            text-align: center;
+
+            font-size:
+                3rem;
+
+            font-weight:
+                800;
+
+            letter-spacing:
+                -0.05em;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    #ffffff,
+                    #aebcff,
+                    #ffffff
+                );
+
+            -webkit-background-clip:
+                text;
+
+            -webkit-text-fill-color:
+                transparent;
+
+            margin-bottom:
+                8px;
+
         }
 
+
         .login-subtitle {
-            text-align: center;
-            color: #9da6c0;
-            margin-bottom: 30px;
+
+            color:
+                rgba(235,240,255,0.62);
+
+            font-size:
+                1rem;
+
+            margin-bottom:
+                5px;
+
+        }
+
+
+        .login-lock {
+
+            width:
+                70px;
+
+            height:
+                70px;
+
+            margin:
+                0 auto 22px auto;
+
+            border-radius:
+                22px;
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                center;
+
+            font-size:
+                2rem;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    rgba(100,130,255,0.25),
+                    rgba(170,80,255,0.18)
+                );
+
+            border:
+                1px solid
+                rgba(140,160,255,0.25);
+
+            box-shadow:
+                0 0 35px
+                rgba(100,120,255,0.18);
+
+        }
+
+
+        .stButton > button {
+
+            transition:
+                all 0.22s ease;
+
+        }
+
+
+        .stButton > button:hover {
+
+            transform:
+                translateY(-2px)
+                scale(1.01);
+
+            box-shadow:
+                0 12px 35px
+                rgba(80,110,255,0.28);
+
         }
 
         </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
+
+    # =====================================================
+    # LOGIN CARD
+    # =====================================================
+
+    st.markdown(
+        """
         <div class="login-card">
+
+            <div class="login-lock">
+                🔐
+            </div>
 
             <div class="login-title">
                 ✦ MC Search
@@ -268,10 +401,15 @@ def require_login():
         unsafe_allow_html=True,
     )
 
+
+    # =====================================================
+    # LOCKOUT
+    # =====================================================
+
     if is_locked():
 
         st.error(
-            "Too many failed login attempts."
+            "🔒 Too many failed login attempts."
         )
 
         st.warning(
@@ -281,27 +419,44 @@ def require_login():
 
         st.stop()
 
+
+    # =====================================================
+    # PASSWORD
+    # =====================================================
+
     password = st.text_input(
         "Password",
         type="password",
         placeholder="Enter your password",
+        key="auth_password",
     )
+
+
+    # =====================================================
+    # LOGIN BUTTON
+    # =====================================================
 
     login_button = st.button(
         "🔐 Sign In",
         type="primary",
         use_container_width=True,
+        key="login_button",
     )
+
 
     if login_button:
 
         if login_user(password):
 
             st.success(
-                "Authenticated."
+                "✓ Authenticated."
             )
 
-            time.sleep_short = 0
+            # Remove password from session state
+            st.session_state.pop(
+                "auth_password",
+                None,
+            )
 
             st.rerun()
 
