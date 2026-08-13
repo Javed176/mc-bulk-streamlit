@@ -619,13 +619,18 @@ def extract_location(soup) -> str:
 
     lines = page_lines(soup)
 
+    # =====================================================
+    # FIND PHYSICAL ADDRESS
+    # =====================================================
+
     for index, line in enumerate(lines):
 
         if line.lower() == "physical address":
 
+            # Look at the next few lines
             for candidate in lines[
                 index + 1:
-                index + 6
+                index + 7
             ]:
 
                 candidate = clean_text(candidate)
@@ -633,26 +638,75 @@ def extract_location(soup) -> str:
                 if not candidate:
                     continue
 
+                # Ignore other section headings
                 if candidate.lower() in (
                     "mailing address",
                     "address",
+                    "company officers",
+                    "contact information",
+                    "operation information",
                 ):
                     continue
 
-                if re.search(
-                    r"\b[A-Z]{2}\s+"
-                    r"\d{5}(?:-\d{4})?\b",
+                # =================================================
+                # Extract CITY + STATE only
+                #
+                # Example:
+                #
+                # 558 E 36TH ST N, TULSA, OK 74106
+                #
+                # becomes:
+                #
+                # TULSA, OK
+                # =================================================
+
+                match = re.search(
+                    r",\s*([^,]+),\s*([A-Z]{2})"
+                    r"(?:\s+\d{5}(?:-\d{4})?)?$",
                     candidate,
-                ):
-                    return candidate
+                    flags=re.I,
+                )
+
+                if match:
+
+                    city = clean_text(
+                        match.group(1)
+                    )
+
+                    state = (
+                        match.group(2)
+                        .upper()
+                    )
+
+                    return f"{city.upper()}, {state}"
+
+    # =====================================================
+    # FALLBACK
+    # =====================================================
+
+    for line in lines:
+
+        match = re.search(
+            r",\s*([^,]+),\s*([A-Z]{2})"
+            r"\s+\d{5}(?:-\d{4})?",
+            line,
+            flags=re.I,
+        )
+
+        if match:
+
+            city = clean_text(
+                match.group(1)
+            )
+
+            state = (
+                match.group(2)
+                .upper()
+            )
+
+            return f"{city.upper()}, {state}"
 
     return "Not available"
-
-
-# =========================================================
-# OWNER
-# =========================================================
-
 def extract_owner(soup) -> str:
 
     # -----------------------------------------------------
