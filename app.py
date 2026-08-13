@@ -8,13 +8,14 @@ from src.search import search_one
 
 
 # =========================================================
-# PAGE
+# PAGE CONFIG
 # =========================================================
 
 st.set_page_config(
-    page_title="MC Bulk Search",
-    page_icon="🚛",
+    page_title="MC Search",
+    page_icon="✦",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
 
@@ -37,32 +38,593 @@ if "start_mc" not in st.session_state:
 if "searched_count" not in st.session_state:
     st.session_state.searched_count = 0
 
+if "clearing" not in st.session_state:
+    st.session_state.clearing = False
+
 
 # =========================================================
-# TITLE
+# MODERN IOS / GLASS UI
 # =========================================================
 
-st.title("🚛 MC Automatic Bulk Search")
+st.markdown(
+    """
+<style>
 
-st.caption(
-    "FMCSA is used only to convert MC → DOT. "
-    "Final company data comes from DotSearch."
+/* =====================================================
+   GLOBAL
+   ===================================================== */
+
+.stApp {
+
+    background:
+        radial-gradient(
+            circle at 15% 10%,
+            rgba(80, 110, 255, 0.18),
+            transparent 30%
+        ),
+        radial-gradient(
+            circle at 85% 15%,
+            rgba(170, 80, 255, 0.16),
+            transparent 30%
+        ),
+        linear-gradient(
+            135deg,
+            #05060a 0%,
+            #0b0d14 45%,
+            #05060a 100%
+        );
+
+    color: #f5f7ff;
+}
+
+
+/* =====================================================
+   MAIN CONTAINER
+   ===================================================== */
+
+.block-container {
+
+    max-width: 1450px;
+
+    padding-top: 2.5rem;
+    padding-bottom: 4rem;
+
+}
+
+
+/* =====================================================
+   HEADINGS
+   ===================================================== */
+
+h1 {
+
+    font-size: 3rem !important;
+
+    font-weight: 750 !important;
+
+    letter-spacing: -0.05em;
+
+    background:
+        linear-gradient(
+            90deg,
+            #ffffff,
+            #b9c5ff,
+            #ffffff
+        );
+
+    -webkit-background-clip: text;
+
+    -webkit-text-fill-color: transparent;
+
+}
+
+
+h2, h3 {
+
+    color: #f5f7ff !important;
+
+}
+
+
+/* =====================================================
+   GLASS CARD
+   ===================================================== */
+
+.glass-card {
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(255,255,255,0.105),
+            rgba(255,255,255,0.035)
+        );
+
+    border:
+
+        1px solid
+        rgba(255,255,255,0.12);
+
+    box-shadow:
+
+        0 20px 70px
+        rgba(0,0,0,0.45),
+
+        inset 0 1px 0
+        rgba(255,255,255,0.08);
+
+    backdrop-filter:
+        blur(25px)
+        saturate(160%);
+
+    -webkit-backdrop-filter:
+        blur(25px)
+        saturate(160%);
+
+    border-radius: 28px;
+
+    padding: 26px;
+
+    margin-bottom: 20px;
+
+}
+
+
+/* =====================================================
+   SUBTITLE
+   ===================================================== */
+
+.subtitle {
+
+    color:
+        rgba(235,240,255,0.62);
+
+    font-size: 1rem;
+
+    margin-top: -20px;
+
+    margin-bottom: 28px;
+
+}
+
+
+/* =====================================================
+   INPUT
+   ===================================================== */
+
+div[data-baseweb="input"] {
+
+    background:
+        rgba(255,255,255,0.065) !important;
+
+    border:
+        1px solid
+        rgba(255,255,255,0.12) !important;
+
+    border-radius:
+        18px !important;
+
+    transition:
+        all 0.25s ease;
+
+}
+
+
+div[data-baseweb="input"]:focus-within {
+
+    border-color:
+        rgba(120,145,255,0.85) !important;
+
+    box-shadow:
+        0 0 0 3px
+        rgba(100,125,255,0.12),
+
+        0 0 30px
+        rgba(80,100,255,0.15);
+
+}
+
+
+input {
+
+    color:
+        #ffffff !important;
+
+    font-size:
+        1.05rem !important;
+
+}
+
+
+/* =====================================================
+   BUTTONS
+   ===================================================== */
+
+.stButton > button {
+
+    border-radius:
+        18px !important;
+
+    border:
+        1px solid
+        rgba(255,255,255,0.14) !important;
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(255,255,255,0.12),
+            rgba(255,255,255,0.045)
+        ) !important;
+
+    color:
+        #ffffff !important;
+
+    font-weight:
+        650 !important;
+
+    min-height:
+        50px;
+
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease,
+        background 0.2s ease;
+
+    box-shadow:
+        0 10px 30px
+        rgba(0,0,0,0.25),
+
+        inset 0 1px 0
+        rgba(255,255,255,0.10);
+
+}
+
+
+.stButton > button:hover {
+
+    transform:
+        translateY(-2px)
+        scale(1.015);
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(105,130,255,0.30),
+            rgba(130,80,255,0.20)
+        ) !important;
+
+    box-shadow:
+        0 12px 35px
+        rgba(75,95,255,0.28),
+
+        0 0 25px
+        rgba(90,110,255,0.18);
+
+}
+
+
+.stButton > button:active {
+
+    transform:
+        scale(0.97);
+
+}
+
+
+/* =====================================================
+   METRIC CARDS
+   ===================================================== */
+
+div[data-testid="stMetric"] {
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(255,255,255,0.09),
+            rgba(255,255,255,0.035)
+        );
+
+    border:
+        1px solid
+        rgba(255,255,255,0.10);
+
+    border-radius:
+        22px;
+
+    padding:
+        18px;
+
+    box-shadow:
+        0 15px 40px
+        rgba(0,0,0,0.25);
+
+    backdrop-filter:
+        blur(20px);
+
+}
+
+
+div[data-testid="stMetricValue"] {
+
+    color:
+        #ffffff !important;
+
+}
+
+
+/* =====================================================
+   DATAFRAME
+   ===================================================== */
+
+div[data-testid="stDataFrame"] {
+
+    border-radius:
+        22px;
+
+    overflow:
+        hidden;
+
+    border:
+        1px solid
+        rgba(255,255,255,0.10);
+
+    box-shadow:
+        0 20px 60px
+        rgba(0,0,0,0.30);
+
+}
+
+
+/* =====================================================
+   STATUS PULSE
+   ===================================================== */
+
+.live-dot {
+
+    display: inline-block;
+
+    width: 10px;
+    height: 10px;
+
+    border-radius: 50%;
+
+    background: #36ff8a;
+
+    box-shadow:
+        0 0 8px #36ff8a,
+        0 0 20px #36ff8a;
+
+    animation:
+        pulse 1.4s infinite;
+
+    margin-right: 8px;
+
+}
+
+
+@keyframes pulse {
+
+    0% {
+        transform: scale(0.85);
+        opacity: 0.6;
+    }
+
+    50% {
+        transform: scale(1.2);
+        opacity: 1;
+    }
+
+    100% {
+        transform: scale(0.85);
+        opacity: 0.6;
+    }
+
+}
+
+
+/* =====================================================
+   BLACK HOLE
+   ===================================================== */
+
+.black-hole {
+
+    position: fixed;
+
+    left: 50%;
+    top: 50%;
+
+    transform:
+        translate(-50%, -50%);
+
+    width: 220px;
+    height: 220px;
+
+    border-radius: 50%;
+
+    z-index: 999999;
+
+    background:
+
+        radial-gradient(
+            circle,
+            #000 0%,
+            #000 27%,
+            #17002c 30%,
+            #6d1cff 43%,
+            #ff4fd8 48%,
+            #151020 58%,
+            transparent 70%
+        );
+
+    box-shadow:
+
+        0 0 35px
+        #7a2cff,
+
+        0 0 100px
+        #5a1cff,
+
+        0 0 180px
+        rgba(255,40,210,0.35);
+
+    animation:
+        blackHole 1.35s
+        cubic-bezier(.6,0,.1,1)
+        forwards;
+
+}
+
+
+@keyframes blackHole {
+
+    0% {
+
+        width: 20px;
+        height: 20px;
+
+        opacity: 0;
+
+        transform:
+            translate(-50%, -50%)
+            rotate(0deg);
+
+    }
+
+    25% {
+
+        width: 260px;
+        height: 260px;
+
+        opacity: 1;
+
+    }
+
+    65% {
+
+        width: 330px;
+        height: 330px;
+
+        opacity: 1;
+
+        filter:
+            brightness(1.4);
+
+    }
+
+    100% {
+
+        width: 0;
+        height: 0;
+
+        opacity: 0;
+
+        transform:
+            translate(-50%, -50%)
+            rotate(540deg);
+
+    }
+
+}
+
+
+/* =====================================================
+   MOBILE
+   ===================================================== */
+
+@media (max-width: 768px) {
+
+    h1 {
+
+        font-size:
+            2.2rem !important;
+
+    }
+
+    .block-container {
+
+        padding-left:
+            1rem;
+
+        padding-right:
+            1rem;
+
+    }
+
+}
+
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
 
 # =========================================================
-# START MC
+# HEADER
 # =========================================================
 
-st.subheader(
-    "Start MC Number"
+st.markdown(
+    """
+<div class="glass-card">
+
+<h1>✦ MC Search</h1>
+
+<div class="subtitle">
+FMCSA intelligence → DotSearch enrichment
+</div>
+
+</div>
+""",
+    unsafe_allow_html=True,
 )
+
+
+# =========================================================
+# CONTROL CARD
+# =========================================================
+
+st.markdown(
+    '<div class="glass-card">',
+    unsafe_allow_html=True,
+)
+
+
+st.markdown(
+    "### 🎯 Search Control"
+)
+
+
+# =========================================================
+# CURRENT MC
+# =========================================================
+
+if st.session_state.running:
+
+    display_mc = str(
+        st.session_state.current_mc
+    )
+
+elif st.session_state.start_mc:
+
+    display_mc = str(
+        st.session_state.start_mc
+    )
+
+else:
+
+    display_mc = ""
+
 
 start_input = st.text_input(
-    "Enter the first MC number",
-    value=st.session_state.start_mc,
+    "Current MC Number",
+    value=display_mc,
     placeholder="Example: 1066434",
     disabled=st.session_state.running,
+    key="mc_input",
+)
+
+
+st.caption(
+    "Enter the starting MC. The app will automatically "
+    "move to the next MC until you press STOP."
 )
 
 
@@ -70,13 +632,15 @@ start_input = st.text_input(
 # BUTTONS
 # =========================================================
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(
+    [1, 1, 1]
+)
 
 
 with col1:
 
     start_button = st.button(
-        "▶️ START",
+        "▶ Start Search",
         type="primary",
         use_container_width=True,
         disabled=st.session_state.running,
@@ -86,11 +650,56 @@ with col1:
 with col2:
 
     stop_button = st.button(
-        "🛑 STOP",
-        type="secondary",
+        "■ Stop",
         use_container_width=True,
         disabled=not st.session_state.running,
     )
+
+
+with col3:
+
+    clear_button = st.button(
+        "◉ Clear History",
+        use_container_width=True,
+    )
+
+
+st.markdown(
+    "</div>",
+    unsafe_allow_html=True,
+)
+
+
+# =========================================================
+# CLEAR HISTORY
+# =========================================================
+
+if clear_button:
+
+    # Show black hole
+
+    st.markdown(
+        """
+        <div class="black-hole"></div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    time.sleep(
+        1.0
+    )
+
+    st.session_state.results = []
+
+    st.session_state.searched_count = 0
+
+    st.session_state.running = False
+
+    st.session_state.current_mc = None
+
+    st.session_state.start_mc = ""
+
+    st.rerun()
 
 
 # =========================================================
@@ -123,10 +732,11 @@ if start_button:
     if not cleaned.isdigit():
 
         st.error(
-            "Please enter a valid numeric MC number."
+            "Enter a valid numeric MC number."
         )
 
         st.stop()
+
 
     st.session_state.start_mc = cleaned
 
@@ -144,25 +754,52 @@ if start_button:
 
 
 # =========================================================
-# CURRENT STATUS
+# LIVE STATUS
 # =========================================================
 
 if st.session_state.running:
 
-    st.warning(
-        f"🔄 Searching MC "
-        f"{st.session_state.current_mc:,}..."
+    st.markdown(
+        f"""
+        <div class="glass-card">
+
+        <span class="live-dot"></span>
+
+        <b>Searching MC
+        {st.session_state.current_mc:,}
+        </b>
+
+        <br>
+
+        <small style="color:#9da6c0">
+        Automatically searching sequential MC numbers...
+        </small>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-else:
 
-    if st.session_state.searched_count > 0:
+elif st.session_state.searched_count > 0:
 
-        st.info(
-            f"Stopped after "
-            f"{st.session_state.searched_count:,} "
-            f"MC number(s)."
-        )
+    st.markdown(
+        f"""
+        <div class="glass-card">
+
+        <b>✓ Search stopped</b>
+
+        <br>
+
+        <small style="color:#9da6c0">
+        {st.session_state.searched_count:,}
+        MC number(s) processed.
+        </small>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # =========================================================
@@ -175,16 +812,18 @@ if st.session_state.running:
         st.session_state.current_mc
     )
 
+
     # -----------------------------------------------------
-    # SEARCH CURRENT MC
+    # Search current MC
     # -----------------------------------------------------
 
     result = search_one(
         str(current_mc)
     )
 
+
     # -----------------------------------------------------
-    # ADD RESULT
+    # Store result
     # -----------------------------------------------------
 
     st.session_state.results.append(
@@ -193,25 +832,27 @@ if st.session_state.running:
 
     st.session_state.searched_count += 1
 
+
     # -----------------------------------------------------
-    # NEXT MC
+    # Next MC
     # -----------------------------------------------------
 
     st.session_state.current_mc = (
         current_mc + 1
     )
 
+
     # -----------------------------------------------------
-    # WAIT A LITTLE
+    # Small delay
     # -----------------------------------------------------
 
-    time.sleep(0.5)
+    time.sleep(
+        0.5
+    )
+
 
     # -----------------------------------------------------
     # RERUN
-    #
-    # This searches the next MC.
-    # Stop button can interrupt between requests.
     # -----------------------------------------------------
 
     st.rerun()
@@ -223,16 +864,16 @@ if st.session_state.running:
 
 if st.session_state.results:
 
-    st.divider()
-
-    st.subheader(
-        "📊 Results"
+    st.markdown(
+        '<div class="glass-card">',
+        unsafe_allow_html=True,
     )
 
 
-    # =====================================================
-    # DATAFRAME
-    # =====================================================
+    st.markdown(
+        "### 📊 Search Results"
+    )
+
 
     rows = []
 
@@ -309,7 +950,7 @@ if st.session_state.results:
 
 
     # =====================================================
-    # COUNTERS
+    # METRICS
     # =====================================================
 
     active_count = int(
@@ -328,14 +969,6 @@ if st.session_state.results:
     )
 
 
-    carrier_count = int(
-        (
-            df["Broker/Carrier"]
-            == "CARRIER"
-        ).sum()
-    )
-
-
     broker_count = int(
         (
             df["Broker/Carrier"]
@@ -344,34 +977,42 @@ if st.session_state.results:
     )
 
 
-    col1, col2, col3, col4 = st.columns(
+    carrier_count = int(
+        (
+            df["Broker/Carrier"]
+            == "CARRIER"
+        ).sum()
+    )
+
+
+    c1, c2, c3, c4 = st.columns(
         4
     )
 
 
-    col1.metric(
+    c1.metric(
         "Searched",
         len(df),
     )
 
-    col2.metric(
+    c2.metric(
         "Active",
         active_count,
     )
 
-    col3.metric(
-        "Inactive",
-        inactive_count,
+    c3.metric(
+        "Carriers",
+        carrier_count,
     )
 
-    col4.metric(
+    c4.metric(
         "Brokers",
         broker_count,
     )
 
 
     # =====================================================
-    # STATUS COLORS
+    # TABLE COLORS
     # =====================================================
 
     def color_status(value):
@@ -379,15 +1020,15 @@ if st.session_state.results:
         if value == "ACTIVE":
 
             return (
-                "color: #16a34a;"
-                "font-weight: 700;"
+                "color:#39ff88;"
+                "font-weight:700;"
             )
 
         if value == "INACTIVE":
 
             return (
-                "color: #dc2626;"
-                "font-weight: 700;"
+                "color:#ff4d67;"
+                "font-weight:700;"
             )
 
         return ""
@@ -398,15 +1039,15 @@ if st.session_state.results:
         if value == "BROKER":
 
             return (
-                "color: #7c3aed;"
-                "font-weight: 700;"
+                "color:#c084fc;"
+                "font-weight:700;"
             )
 
         if value == "CARRIER":
 
             return (
-                "color: #2563eb;"
-                "font-weight: 700;"
+                "color:#60a5fa;"
+                "font-weight:700;"
             )
 
         return ""
@@ -429,14 +1070,36 @@ if st.session_state.results:
     )
 
 
-    # =====================================================
-    # SHOW TABLE
-    # =====================================================
-
     st.dataframe(
         styled_df,
         use_container_width=True,
         hide_index=True,
+    )
+
+
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+    # =====================================================
+    # DOWNLOAD CARD
+    # =====================================================
+
+    st.markdown(
+        '<div class="glass-card">',
+        unsafe_allow_html=True,
+    )
+
+
+    st.markdown(
+        "### ⬇ Export"
+    )
+
+
+    download_col1, download_col2 = st.columns(
+        2
     )
 
 
@@ -451,13 +1114,15 @@ if st.session_state.results:
     )
 
 
-    st.download_button(
-        "⬇️ Download CSV",
-        data=csv_data,
-        file_name="mc_results.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
+    with download_col1:
+
+        st.download_button(
+            "Download CSV",
+            data=csv_data,
+            file_name="mc_results.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
 
     # =====================================================
@@ -479,15 +1144,23 @@ if st.session_state.results:
         )
 
 
-    st.download_button(
-        "⬇️ Download Excel",
-        data=excel_buffer.getvalue(),
-        file_name="mc_results.xlsx",
-        mime=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        ),
-        use_container_width=True,
+    with download_col2:
+
+        st.download_button(
+            "Download Excel",
+            data=excel_buffer.getvalue(),
+            file_name="mc_results.xlsx",
+            mime=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            use_container_width=True,
+        )
+
+
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
     )
 
 
@@ -498,11 +1171,9 @@ if st.session_state.results:
     if errors:
 
         with st.expander(
-            "⚠️ Search messages"
+            "⚠ Search messages"
         ):
 
             for error in errors:
 
-                st.write(
-                    error
-                )
+                st.write(error)
