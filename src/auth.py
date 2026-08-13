@@ -11,7 +11,7 @@ from src.database import get_user
 
 
 # =========================================================
-# SECURITY SETTINGS
+# SECURITY 
 # =========================================================
 
 MAX_LOGIN_ATTEMPTS = 5
