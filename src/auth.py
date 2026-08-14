@@ -9,15 +9,15 @@ import streamlit as st
 
 from src.database import (
     clear_user_session,
+    create_access_request,
     create_user_session,
     get_user,
-    get_user_session,
     validate_user_session,
 )
 
 
 # =========================================================
-# SECURITY
+# SECURITY SETTINGS
 # =========================================================
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -37,7 +37,6 @@ def init_auth_state():
         "session_token": "",
         "login_attempts": 0,
         "login_locked_until": 0.0,
-        "session_message": "",
     }
 
     for key, value in defaults.items():
@@ -50,9 +49,7 @@ def init_auth_state():
 # PASSWORD
 # =========================================================
 
-def hash_password(
-    password: str,
-) -> str:
+def hash_password(password: str) -> str:
 
     return hashlib.sha256(
         password.encode("utf-8")
@@ -66,39 +63,48 @@ def hash_password(
 def get_admin_username() -> str:
 
     try:
+
         return str(
             st.secrets.get(
                 "ADMIN_USERNAME",
                 "",
             )
         ).strip()
+
     except Exception:
+
         return ""
 
 
 def get_admin_password_hash() -> str:
 
     try:
+
         return str(
             st.secrets.get(
                 "ADMIN_PASSWORD_HASH",
                 "",
             )
         ).strip()
+
     except Exception:
+
         return ""
 
 
 def get_admin_password() -> str:
 
     try:
+
         return str(
             st.secrets.get(
                 "ADMIN_PASSWORD",
                 "",
             )
         )
+
     except Exception:
+
         return ""
 
 
@@ -157,13 +163,10 @@ def check_admin_credentials(
 
 def is_locked() -> bool:
 
-    return (
-        time.time()
-        < float(
-            st.session_state.get(
-                "login_locked_until",
-                0.0,
-            )
+    return time.time() < float(
+        st.session_state.get(
+            "login_locked_until",
+            0.0,
         )
     )
 
@@ -186,15 +189,12 @@ def seconds_remaining() -> int:
 
 def failed_login():
 
-    attempts = (
-        int(
-            st.session_state.get(
-                "login_attempts",
-                0,
-            )
+    attempts = int(
+        st.session_state.get(
+            "login_attempts",
+            0,
         )
-        + 1
-    )
+    ) + 1
 
     if attempts >= MAX_LOGIN_ATTEMPTS:
 
@@ -211,7 +211,7 @@ def failed_login():
 
 
 # =========================================================
-# DATABASE USER CHECK
+# DATABASE USER LOGIN
 # =========================================================
 
 def _check_database_user(
@@ -290,22 +290,18 @@ def login_user(
         failed_login()
         return False
 
-    # =====================================================
+    # -----------------------------------------------------
     # ADMIN
-    # =====================================================
+    # -----------------------------------------------------
 
     if check_admin_credentials(
         username,
         password,
     ):
 
-        token = secrets.token_urlsafe(32)
-
-        # -------------------------------------------------
-        # If the admin exists in users, replace its token.
-        # This means a new admin login also replaces the
-        # previous admin browser session.
-        # -------------------------------------------------
+        token = secrets.token_urlsafe(
+            32
+        )
 
         try:
 
@@ -322,29 +318,20 @@ def login_user(
 
         except Exception:
 
-            # The configured Streamlit admin can still log in
-            # even if there is no users table record.
             pass
 
         st.session_state.authenticated = True
-
         st.session_state.username = username
-
         st.session_state.role = "admin"
-
         st.session_state.session_token = token
-
         st.session_state.login_attempts = 0
-
         st.session_state.login_locked_until = 0.0
-
-        st.session_state.session_message = ""
 
         return True
 
-    # =====================================================
+    # -----------------------------------------------------
     # STANDARD USER
-    # =====================================================
+    # -----------------------------------------------------
 
     record, status = (
         _check_database_user(
@@ -376,50 +363,31 @@ def login_user(
 
         role = "standard_user"
 
-    # =====================================================
-    # IMPORTANT:
-    #
-    # ALWAYS create a new token.
-    #
-    # create_user_session() overwrites the existing database
-    # token instead of rejecting the login.
-    #
-    # Therefore:
-    #
-    # OLD TAB -> old token -> invalid
-    # NEW TAB -> new token -> valid
-    # =====================================================
+    # -----------------------------------------------------
+    # NEW LOGIN REPLACES OLD LOGIN
+    # -----------------------------------------------------
 
-    token = secrets.token_urlsafe(32)
+    token = secrets.token_urlsafe(
+        32
+    )
 
     try:
 
-        session_result = create_user_session(
+        create_user_session(
             username,
             token,
         )
-
-        if not session_result:
-
-            return False
 
     except Exception:
 
         return False
 
     st.session_state.authenticated = True
-
     st.session_state.username = username
-
     st.session_state.role = role
-
     st.session_state.session_token = token
-
     st.session_state.login_attempts = 0
-
     st.session_state.login_locked_until = 0.0
-
-    st.session_state.session_message = ""
 
     return True
 
@@ -466,7 +434,7 @@ def validate_current_session():
 
 
 # =========================================================
-# AUTHENTICATED
+# AUTHENTICATED?
 # =========================================================
 
 def is_authenticated() -> bool:
@@ -480,24 +448,11 @@ def is_authenticated() -> bool:
 
         return False
 
-    valid, reason = (
+    valid, _ = (
         validate_current_session()
     )
 
     if not valid:
-
-        # -------------------------------------------------
-        # IMPORTANT:
-        # Do NOT clear the database session here.
-        #
-        # If this tab was replaced by another login, its
-        # token is old. Clearing the database here would
-        # accidentally destroy the NEW login.
-        # -------------------------------------------------
-
-        st.session_state.session_message = (
-            reason
-        )
 
         logout_user(
             clear_database=False
@@ -509,7 +464,7 @@ def is_authenticated() -> bool:
 
 
 # =========================================================
-# ADMIN
+# ADMIN?
 # =========================================================
 
 def is_admin() -> bool:
@@ -524,78 +479,6 @@ def is_admin() -> bool:
         ).lower()
         == "admin"
     )
-
-
-# =========================================================
-# SESSION INFO
-# =========================================================
-
-def get_current_session():
-
-    if not st.session_state.get(
-        "username",
-        "",
-    ):
-
-        return None
-
-    try:
-
-        return get_user_session(
-            st.session_state.username
-        )
-
-    except Exception:
-
-        return None
-
-
-def get_search_delay() -> float:
-
-    record = get_current_session()
-
-    if not record:
-        return 0.5
-
-    try:
-
-        return max(
-            0.0,
-            float(
-                record.get(
-                    "search_delay_seconds",
-                    0.5,
-                )
-            ),
-        )
-
-    except Exception:
-
-        return 0.5
-
-
-def get_session_timeout_minutes() -> int:
-
-    record = get_current_session()
-
-    if not record:
-        return 60
-
-    try:
-
-        return max(
-            1,
-            int(
-                record.get(
-                    "session_timeout_minutes",
-                    60,
-                )
-            ),
-        )
-
-    except Exception:
-
-        return 60
 
 
 # =========================================================
@@ -637,9 +520,105 @@ def logout_user(
     st.session_state.username = ""
     st.session_state.role = ""
     st.session_state.session_token = ""
-
     st.session_state.login_attempts = 0
     st.session_state.login_locked_until = 0.0
+
+
+# =========================================================
+# ACCESS REQUEST
+# =========================================================
+
+def _request_access():
+
+    st.markdown(
+        "### 📱 Request Access"
+    )
+
+    st.caption(
+        "Enter your WhatsApp number. "
+        "An administrator will contact you."
+    )
+
+    with st.form(
+        "request_access_form",
+        clear_on_submit=True,
+    ):
+
+        whatsapp = st.text_input(
+            "WhatsApp Number",
+            placeholder="+1 555 123 4567",
+        )
+
+        submitted = (
+            st.form_submit_button(
+                "📲 Request Access",
+                type="primary",
+                use_container_width=True,
+            )
+        )
+
+    if submitted:
+
+        clean_number = (
+            str(whatsapp)
+            .strip()
+        )
+
+        if not clean_number:
+
+            st.error(
+                "Please enter your WhatsApp number."
+            )
+
+            return
+
+        # Basic validation:
+        # numbers plus common phone separators only.
+        allowed = set(
+            "0123456789+()- ."
+        )
+
+        if any(
+            char not in allowed
+            for char in clean_number
+        ):
+
+            st.error(
+                "Please enter a valid WhatsApp number."
+            )
+
+            return
+
+        digits = "".join(
+            char
+            for char in clean_number
+            if char.isdigit()
+        )
+
+        if len(digits) < 7:
+
+            st.error(
+                "Please enter a valid WhatsApp number."
+            )
+
+            return
+
+        try:
+
+            create_access_request(
+                clean_number
+            )
+
+            st.success(
+                "✓ Request sent. "
+                "An administrator will contact you on WhatsApp."
+            )
+
+        except Exception as exc:
+
+            st.error(
+                f"Unable to send request: {exc}"
+            )
 
 
 # =========================================================
@@ -653,54 +632,22 @@ def require_login() -> bool:
     if is_authenticated():
         return True
 
-    reason = st.session_state.get(
-        "session_message",
-        "",
-    )
-
-    if reason == "session_replaced":
-
-        st.warning(
-            "🔒 This session was logged out "
-            "because the account was signed in "
-            "from another tab or browser."
-        )
-
-        st.session_state.session_message = ""
-
-    elif reason == "expired":
-
-        st.warning(
-            "⏱️ Your session has expired. "
-            "Please sign in again."
-        )
-
-        st.session_state.session_message = ""
-
-    elif reason == "inactive":
-
-        st.error(
-            "This account has been disabled."
-        )
-
-        st.session_state.session_message = ""
-
     st.markdown(
         """
         <style>
 
         .login-title {
-            text-align: center;
-            font-size: 2.6rem;
-            font-weight: 850;
-            margin-top: 8vh;
-            color: white;
+            text-align:center;
+            font-size:2.6rem;
+            font-weight:800;
+            margin-top:8vh;
+            color:white;
         }
 
         .login-subtitle {
-            text-align: center;
-            color: #9da6c0;
-            margin-bottom: 25px;
+            text-align:center;
+            color:#9da6c0;
+            margin-bottom:25px;
         }
 
         </style>
@@ -715,9 +662,7 @@ def require_login() -> bool:
     with center:
 
         st.markdown(
-            '<div class="login-title">'
-            '✦ MC Search'
-            '</div>',
+            '<div class="login-title">✦ MC Search</div>',
             unsafe_allow_html=True,
         )
 
@@ -740,6 +685,10 @@ def require_login() -> bool:
             )
 
             st.stop()
+
+        # -------------------------------------------------
+        # LOGIN
+        # -------------------------------------------------
 
         with st.form(
             "mc_login_form",
@@ -805,5 +754,13 @@ def require_login() -> bool:
                             f"{remaining} "
                             f"attempt(s) remaining."
                         )
+
+        # -------------------------------------------------
+        # REQUEST ACCESS
+        # -------------------------------------------------
+
+        st.divider()
+
+        _request_access()
 
     st.stop()
