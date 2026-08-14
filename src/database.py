@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import streamlit as st
 from supabase import Client, create_client
@@ -11,16 +12,21 @@ from supabase import Client, create_client
 # SAFE SECRET READER
 # =========================================================
 
-def _get_secret(name: str, default: str = "") -> str:
+def _get_secret(
+    name: str,
+    default: str = "",
+) -> str:
     """
     Safely read a Streamlit secret.
 
-    This never crashes the application if the secret
-    doesn't exist.
+    Falls back to environment variables.
     """
 
     try:
-        value = st.secrets.get(name, None)
+        value = st.secrets.get(
+            name,
+            None,
+        )
 
         if value is not None:
             return str(value).strip()
@@ -42,6 +48,13 @@ def _get_secret(name: str, default: str = "") -> str:
 
 @st.cache_resource
 def get_supabase() -> Client:
+    """
+    Create and cache the Supabase client.
+
+    IMPORTANT:
+    The service-role key must only be stored in
+    Streamlit Secrets / environment variables.
+    """
 
     url = _get_secret(
         "SUPABASE_URL"
@@ -73,7 +86,9 @@ def get_supabase() -> Client:
 # USERS
 # =========================================================
 
-def get_user(username: str):
+def get_user(
+    username: str,
+) -> dict[str, Any] | None:
 
     client = get_supabase()
 
@@ -102,19 +117,33 @@ def create_user_record(
 
     client = get_supabase()
 
+    clean_username = str(
+        username
+    ).strip()
+
+    clean_role = str(
+        role
+    ).strip().lower()
+
+    if clean_role not in {
+        "standard_user",
+        "admin",
+    }:
+        clean_role = "standard_user"
+
     response = (
         client.table("users")
         .insert(
             {
-                "username": str(username).strip(),
+                "username": clean_username,
                 "password_hash": password_hash,
-                "role": role,
+                "role": clean_role,
                 "active": True,
 
-                # IMPORTANT:
-                # New users start at 0.5 seconds.
+                # Current database schema supports this.
                 "search_delay_seconds": 0.5,
 
+                # This is the field used by the application.
                 "session_timeout_minutes": 60,
 
                 "session_token": None,
@@ -207,7 +236,6 @@ def set_user_active(
     }
 
     if not active:
-
         values["session_token"] = None
         values["session_started_at"] = None
 
@@ -232,11 +260,10 @@ def update_user_settings(
     session_timeout_minutes: int | None = None,
 ):
 
-    values = {}
+    values: dict[str, Any] = {}
 
     if search_delay_seconds is not None:
 
-        # 0 IS VALID
         values["search_delay_seconds"] = max(
             0.0,
             float(search_delay_seconds),
@@ -280,13 +307,13 @@ def create_user_session(
         timezone.utc
     ).isoformat()
 
-    # Updating the token invalidates the
-    # previous browser/tab session.
     response = (
         client.table("users")
         .update(
             {
-                "session_token": session_token,
+                "session_token": str(
+                    session_token
+                ),
                 "session_started_at": now,
             }
         )
@@ -389,7 +416,6 @@ def validate_user_session(
         )
 
         if started.tzinfo is None:
-
             started = started.replace(
                 tzinfo=timezone.utc
             )
@@ -401,6 +427,7 @@ def validate_user_session(
                     "session_timeout_minutes",
                     60,
                 )
+                or 60
             ),
         )
 
@@ -454,7 +481,7 @@ def clear_user_session(
 
         query = query.eq(
             "session_token",
-            session_token,
+            str(session_token),
         )
 
     return query.execute()
@@ -477,10 +504,10 @@ def insert_audit(
         client.table("audit_logs")
         .insert(
             {
-                "username": username,
-                "action": action,
-                "mc_number": mc_number,
-                "details": details,
+                "username": str(username),
+                "action": str(action),
+                "mc_number": str(mc_number),
+                "details": str(details),
             }
         )
         .execute()
@@ -563,7 +590,7 @@ def create_access_request(
         )
 
     # -----------------------------------------------------
-    # Find the most recent request
+    # Find most recent request
     # -----------------------------------------------------
 
     response = (
@@ -596,7 +623,6 @@ def create_access_request(
             )
         ).lower()
 
-        # Don't create duplicate waiting requests.
         if status == "waiting":
 
             return {
@@ -609,7 +635,6 @@ def create_access_request(
                 "request": existing,
             }
 
-        # Don't create another request after approval.
         if status == "approved":
 
             return {
@@ -624,8 +649,7 @@ def create_access_request(
                 "request": existing,
             }
 
-        # Rejected:
-        # allow a new request.
+        # Rejected requests can submit again.
 
     # -----------------------------------------------------
     # Insert request
@@ -670,6 +694,9 @@ def get_access_request(
         whatsapp_number
     ).strip()
 
+    if not number:
+        return None
+
     response = (
         client.table("access_requests")
         .select("*")
@@ -710,7 +737,7 @@ def list_access_requests(
 
         query = query.eq(
             "status",
-            str(status).lower(),
+            str(status).strip().lower(),
         )
 
     response = query.execute()
@@ -724,11 +751,11 @@ def update_access_request_status(
     reviewed_by: str = "",
 ):
 
-    status = str(
+    clean_status = str(
         status
     ).strip().lower()
 
-    if status not in {
+    if clean_status not in {
         "waiting",
         "approved",
         "rejected",
@@ -741,10 +768,10 @@ def update_access_request_status(
     client = get_supabase()
 
     values = {
-        "status": status,
+        "status": clean_status,
     }
 
-    if status in {
+    if clean_status in {
         "approved",
         "rejected",
     }:
@@ -769,7 +796,7 @@ def update_access_request_status(
         .update(values)
         .eq(
             "id",
-            request_id,
+            str(request_id),
         )
         .execute()
     )
