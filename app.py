@@ -4,22 +4,31 @@ import io
 import time
 import hmac
 import secrets
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import streamlit as st
 
 from src.search import search_one
+
 from src.auth import (
     logout_user,
     is_admin,
     hash_password,
 )
+
 from src.database import (
     create_user_record,
     update_user,
     list_users,
     get_user,
+    create_user_session,
+    get_user_session,
+    validate_user_session,
+    clear_user_session,
+    update_user_settings,
 )
+
 from src.audit import (
     log_action,
     audit_dataframe,
@@ -40,7 +49,7 @@ st.set_page_config(
 
 
 # =========================================================
-# AUTH SETTINGS
+# LOGIN SECURITY
 # =========================================================
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -48,7 +57,7 @@ LOGIN_LOCKOUT_SECONDS = 300
 
 
 # =========================================================
-# AUTH SESSION STATE
+# SESSION STATE
 # =========================================================
 
 def _init_auth_state():
@@ -60,6 +69,20 @@ def _init_auth_state():
         "session_token": "",
         "login_attempts": 0,
         "login_locked_until": 0.0,
+
+        "active_page": "Search",
+
+        "running": False,
+        "start_mc": "",
+        "current_mc": None,
+        "last_searched_mc": None,
+        "results": [],
+        "searched_count": 0,
+
+        "search_delay_seconds": 1,
+        "session_timeout_minutes": 60,
+
+        "session_started_at": None,
     }
 
     for key, value in defaults.items():
@@ -68,27 +91,57 @@ def _init_auth_state():
             st.session_state[key] = value
 
 
+_init_auth_state()
+
+
+# =========================================================
+# HELPERS
+# =========================================================
+
 def _secret(
     name: str,
     default: str = "",
 ) -> str:
 
     try:
-
         value = st.secrets.get(
             name,
             default,
         )
-
     except Exception:
-
         value = default
 
     return str(value).strip()
 
 
+def _parse_datetime(value):
+
+    if not value:
+        return None
+
+    try:
+
+        result = datetime.fromisoformat(
+            str(value).replace(
+                "Z",
+                "+00:00",
+            )
+        )
+
+        if result.tzinfo is None:
+            result = result.replace(
+                tzinfo=timezone.utc
+            )
+
+        return result
+
+    except Exception:
+
+        return None
+
+
 # =========================================================
-# ADMIN LOGIN
+# ADMIN CREDENTIALS
 # =========================================================
 
 def _admin_login(
@@ -113,7 +166,6 @@ def _admin_login(
         "ADMIN_PASSWORD_HASH"
     )
 
-    # Proper SHA-256 hash
     if len(stored_hash) == 64:
 
         supplied_hash = hash_password(
@@ -126,7 +178,6 @@ def _admin_login(
         ):
             return True
 
-    # Optional plain ADMIN_PASSWORD
     stored_password = _secret(
         "ADMIN_PASSWORD"
     )
@@ -139,8 +190,7 @@ def _admin_login(
         ):
             return True
 
-    # Compatibility with old deployment where
-    # ADMIN_PASSWORD_HASH contained plain text.
+    # Compatibility with old deployment.
     if stored_hash and len(stored_hash) != 64:
 
         if hmac.compare_digest(
@@ -153,7 +203,7 @@ def _admin_login(
 
 
 # =========================================================
-# STANDARD USER LOGIN
+# DATABASE USER LOGIN
 # =========================================================
 
 def _database_login(
@@ -172,7 +222,6 @@ def _database_login(
         return None, "database_error"
 
     if not record:
-
         return False, "invalid"
 
     if not bool(
@@ -192,7 +241,6 @@ def _database_login(
     ).strip()
 
     if not stored_hash:
-
         return False, "invalid"
 
     supplied_hash = hash_password(
@@ -263,29 +311,315 @@ def _failed_login():
 
 
 # =========================================================
-# AUTHENTICATED SESSION
+# GET CURRENT DATABASE SESSION
 # =========================================================
 
-def _set_authenticated(
+def _get_current_session():
+
+    username = str(
+        st.session_state.get(
+            "username",
+            "",
+        )
+    ).strip()
+
+    if not username:
+        return None
+
+    try:
+
+        return get_user_session(
+            username
+        )
+
+    except Exception:
+
+        return None
+
+
+# =========================================================
+# CHECK IF ACCOUNT ALREADY HAS A LIVE SESSION
+# =========================================================
+
+def _account_has_live_session(
     username: str,
-    role: str,
+) -> bool:
+
+    try:
+
+        record = get_user_session(
+            username
+        )
+
+    except Exception:
+
+        return False
+
+    if not record:
+        return False
+
+    token = str(
+        record.get(
+            "session_token",
+            "",
+        )
+        or ""
+    )
+
+    if not token:
+        return False
+
+    valid, reason = validate_user_session(
+        username,
+        token,
+    )
+
+    return bool(
+        valid and reason == "ok"
+    )
+
+
+# =========================================================
+# CREATE SINGLE ACTIVE SESSION
+# =========================================================
+
+def _start_database_session(
+    username: str,
 ):
 
-    st.session_state.authenticated = True
+    # -----------------------------------------------------
+    # If another active browser/tab already owns this
+    # username, do NOT allow another login.
+    # -----------------------------------------------------
 
-    st.session_state.username = username
+    if _account_has_live_session(
+        username
+    ):
 
-    st.session_state.role = (
-        role.lower()
+        return False, "already_logged_in"
+
+    token = secrets.token_urlsafe(
+        32
     )
+
+    try:
+
+        response = create_user_session(
+            username,
+            token,
+        )
+
+    except Exception as exc:
+
+        return False, str(exc)
+
+    if not response:
+
+        return False, "session_not_created"
 
     st.session_state.session_token = (
-        secrets.token_urlsafe(32)
+        token
     )
 
-    st.session_state.login_attempts = 0
+    now = datetime.now(
+        timezone.utc
+    )
 
-    st.session_state.login_locked_until = 0.0
+    st.session_state.session_started_at = (
+        now.isoformat()
+    )
+
+    # Load current user settings.
+    try:
+
+        record = get_user_session(
+            username
+        )
+
+        if record:
+
+            st.session_state.search_delay_seconds = max(
+                0,
+                int(
+                    record.get(
+                        "search_delay_seconds",
+                        1,
+                    )
+                ),
+            )
+
+            st.session_state.session_timeout_minutes = max(
+                1,
+                int(
+                    record.get(
+                        "session_timeout_minutes",
+                        60,
+                    )
+                ),
+            )
+
+            st.session_state.session_started_at = (
+                record.get(
+                    "session_started_at"
+                )
+                or st.session_state.session_started_at
+            )
+
+    except Exception:
+        pass
+
+    return True, "ok"
+
+
+# =========================================================
+# LOGOUT / CLEAR LOCAL AUTH
+# =========================================================
+
+def _logout_everywhere():
+
+    username = str(
+        st.session_state.get(
+            "username",
+            "",
+        )
+    ).strip()
+
+    token = str(
+        st.session_state.get(
+            "session_token",
+            "",
+        )
+        or ""
+    )
+
+    if username:
+
+        try:
+
+            clear_user_session(
+                username,
+                token or None,
+            )
+
+        except Exception:
+            pass
+
+    try:
+
+        log_action(
+            "LOGOUT",
+            details="User signed out",
+        )
+
+    except Exception:
+        pass
+
+    logout_user()
+
+    st.session_state.authenticated = False
+    st.session_state.username = ""
+    st.session_state.role = ""
+    st.session_state.session_token = ""
+    st.session_state.session_started_at = None
+
+    st.session_state.running = False
+
+
+# =========================================================
+# VALIDATE CURRENT SESSION
+# =========================================================
+
+def _validate_current_session():
+
+    if not st.session_state.get(
+        "authenticated",
+        False,
+    ):
+        return False
+
+    username = str(
+        st.session_state.get(
+            "username",
+            "",
+        )
+    ).strip()
+
+    token = str(
+        st.session_state.get(
+            "session_token",
+            "",
+        )
+        or ""
+    )
+
+    if not username or not token:
+        return False
+
+    try:
+
+        valid, reason = (
+            validate_user_session(
+                username,
+                token,
+            )
+        )
+
+    except Exception:
+
+        # Do not immediately log out on a temporary
+        # database problem if the local session exists.
+        return True
+
+    if valid:
+        return True
+
+    # Another tab logged in, account disabled,
+    # or session expired.
+    if reason == "session_replaced":
+
+        st.session_state.authenticated = False
+
+        st.session_state.running = False
+
+        st.error(
+            "🔒 This session was signed out because "
+            "the same account was opened in another tab "
+            "or browser."
+        )
+
+    elif reason == "expired":
+
+        st.session_state.authenticated = False
+
+        st.session_state.running = False
+
+        st.error(
+            "⏰ Your session has expired. "
+            "Please sign in again."
+        )
+
+    elif reason == "inactive":
+
+        st.session_state.authenticated = False
+
+        st.session_state.running = False
+
+        st.error(
+            "This account has been disabled."
+        )
+
+    else:
+
+        st.session_state.authenticated = False
+
+        st.session_state.running = False
+
+    st.session_state.username = ""
+    st.session_state.role = ""
+    st.session_state.session_token = ""
+    st.session_state.session_started_at = None
+
+    return False
 
 
 # =========================================================
@@ -296,29 +630,22 @@ def _require_app_login() -> bool:
 
     _init_auth_state()
 
-    if (
-        st.session_state.get(
-            "authenticated",
-            False,
-        )
-        and st.session_state.get(
-            "username",
-            "",
-        )
-        and st.session_state.get(
-            "session_token",
-            "",
-        )
+    # -----------------------------------------------------
+    # Existing session
+    # -----------------------------------------------------
+
+    if st.session_state.get(
+        "authenticated",
+        False,
     ):
 
-        return True
+        if _validate_current_session():
+            return True
+
+        st.rerun()
 
     # -----------------------------------------------------
-    # LOGIN STYLING ONLY
-    #
-    # IMPORTANT:
-    # We do NOT put the login card itself inside HTML.
-    # This prevents raw <div> tags appearing on screen.
+    # Login CSS
     # -----------------------------------------------------
 
     st.markdown(
@@ -326,17 +653,18 @@ def _require_app_login() -> bool:
         <style>
 
         .login-title {
-            text-align: center;
-            font-size: 2.6rem;
-            font-weight: 800;
-            margin-top: 6vh;
-            color: white;
+            text-align:center;
+            font-size:2.7rem;
+            font-weight:850;
+            margin-top:8vh;
+            color:#ffffff;
+            letter-spacing:-0.04em;
         }
 
         .login-subtitle {
-            text-align: center;
-            color: #9da6c0;
-            margin-bottom: 25px;
+            text-align:center;
+            color:#9da6c0;
+            margin-bottom:28px;
         }
 
         </style>
@@ -344,7 +672,6 @@ def _require_app_login() -> bool:
         unsafe_allow_html=True,
     )
 
-    # Native Streamlit UI instead of HTML card.
     left, center, right = st.columns(
         [1, 2, 1]
     )
@@ -352,20 +679,22 @@ def _require_app_login() -> bool:
     with center:
 
         st.markdown(
-            '<div class="login-title">✦ MC Search</div>',
+            "## 🔐",
+        )
+
+        st.markdown(
+            '<div class="login-title">'
+            '✦ MC Search'
+            '</div>',
             unsafe_allow_html=True,
         )
 
         st.markdown(
-            '<div class="login-subtitle">Secure administrator / user access</div>',
+            '<div class="login-subtitle">'
+            'Secure administrator / user access'
+            '</div>',
             unsafe_allow_html=True,
         )
-
-        st.write("")
-
-        # -------------------------------------------------
-        # LOCKOUT
-        # -------------------------------------------------
 
         if _auth_locked():
 
@@ -378,10 +707,6 @@ def _require_app_login() -> bool:
             )
 
             st.stop()
-
-        # -------------------------------------------------
-        # LOGIN FORM
-        # -------------------------------------------------
 
         with st.form(
             "mc_login_form",
@@ -405,10 +730,6 @@ def _require_app_login() -> bool:
                 use_container_width=True,
             )
 
-        # -------------------------------------------------
-        # LOGIN SUBMIT
-        # -------------------------------------------------
-
         if submitted:
 
             clean_username = (
@@ -428,27 +749,112 @@ def _require_app_login() -> bool:
 
                 st.stop()
 
-            # Admin first
+            # -------------------------------------------------
+            # ADMIN LOGIN
+            # -------------------------------------------------
+
             if _admin_login(
                 clean_username,
                 password,
             ):
 
-                _set_authenticated(
-                    clean_username,
-                    "admin",
+                # Ensure the secret-based admin also has
+                # a database session record so the same
+                # single-session protection applies.
+                try:
+
+                    admin_record = get_user(
+                        clean_username
+                    )
+
+                    if not admin_record:
+
+                        admin_hash = (
+                            _secret(
+                                "ADMIN_PASSWORD_HASH"
+                            )
+                        )
+
+                        if len(admin_hash) != 64:
+
+                            admin_hash = hash_password(
+                                _secret(
+                                    "ADMIN_PASSWORD"
+                                )
+                                or password
+                            )
+
+                        create_user_record(
+                            clean_username,
+                            admin_hash,
+                            "admin",
+                        )
+
+                except Exception as exc:
+
+                    st.error(
+                        "Unable to initialize administrator "
+                        f"session: {exc}"
+                    )
+
+                    st.stop()
+
+                ok, reason = (
+                    _start_database_session(
+                        clean_username
+                    )
                 )
 
-                log_action(
-                    "LOGIN",
-                    details=(
-                        "Administrator signed in"
-                    ),
+                if not ok:
+
+                    if reason == "already_logged_in":
+
+                        st.error(
+                            "🔒 This account is already "
+                            "logged in on another tab or browser."
+                        )
+
+                        st.caption(
+                            "Sign out from the other session "
+                            "before signing in here."
+                        )
+
+                    else:
+
+                        st.error(
+                            "Unable to create the secure "
+                            f"session: {reason}"
+                        )
+
+                    st.stop()
+
+                st.session_state.authenticated = True
+                st.session_state.username = (
+                    clean_username
                 )
+                st.session_state.role = "admin"
+
+                st.session_state.login_attempts = 0
+                st.session_state.login_locked_until = 0.0
+
+                try:
+
+                    log_action(
+                        "LOGIN",
+                        details=(
+                            "Administrator signed in"
+                        ),
+                    )
+
+                except Exception:
+                    pass
 
                 st.rerun()
 
-            # Standard user
+            # -------------------------------------------------
+            # STANDARD USER
+            # -------------------------------------------------
+
             record, status = (
                 _database_login(
                     clean_username,
@@ -468,7 +874,6 @@ def _require_app_login() -> bool:
                     )
                 ).lower()
 
-                # Normalize the database role.
                 if role in {
                     "admin",
                     "administrator",
@@ -480,19 +885,61 @@ def _require_app_login() -> bool:
 
                     role = "standard_user"
 
-                _set_authenticated(
-                    clean_username,
-                    role,
+                ok, reason = (
+                    _start_database_session(
+                        clean_username
+                    )
                 )
 
-                log_action(
-                    "LOGIN",
-                    details=(
-                        f"{role} signed in"
-                    ),
+                if not ok:
+
+                    if reason == "already_logged_in":
+
+                        st.error(
+                            "🔒 This account is already "
+                            "logged in on another tab or browser."
+                        )
+
+                        st.caption(
+                            "Only one active session is "
+                            "allowed for each username."
+                        )
+
+                    else:
+
+                        st.error(
+                            "Unable to create secure session: "
+                            f"{reason}"
+                        )
+
+                    st.stop()
+
+                st.session_state.authenticated = True
+                st.session_state.username = (
+                    clean_username
                 )
+                st.session_state.role = role
+
+                st.session_state.login_attempts = 0
+                st.session_state.login_locked_until = 0.0
+
+                try:
+
+                    log_action(
+                        "LOGIN",
+                        details=(
+                            f"{role} signed in"
+                        ),
+                    )
+
+                except Exception:
+                    pass
 
                 st.rerun()
+
+            # -------------------------------------------------
+            # LOGIN FAILURE
+            # -------------------------------------------------
 
             if status == "inactive":
 
@@ -543,17 +990,200 @@ def _require_app_login() -> bool:
 
 
 # =========================================================
-# AUTH
+# REQUIRE LOGIN
 # =========================================================
 
 _require_app_login()
 
 
 # =========================================================
-# SEARCH SESSION STATE
+# LOAD CURRENT USER SETTINGS
 # =========================================================
 
-defaults = {
+current_session = _get_current_session()
+
+if current_session:
+
+    st.session_state.search_delay_seconds = max(
+        0,
+        int(
+            current_session.get(
+                "search_delay_seconds",
+                1,
+            )
+        ),
+    )
+
+    st.session_state.session_timeout_minutes = max(
+        1,
+        int(
+            current_session.get(
+                "session_timeout_minutes",
+                60,
+            )
+        ),
+    )
+
+    if current_session.get(
+        "session_started_at"
+    ):
+
+        st.session_state.session_started_at = (
+            current_session.get(
+                "session_started_at"
+            )
+        )
+
+
+# =========================================================
+# LIVE SESSION TIMER
+# =========================================================
+
+def _format_remaining(seconds: int) -> str:
+
+    seconds = max(
+        0,
+        int(seconds),
+    )
+
+    minutes, secs = divmod(
+        seconds,
+        60,
+    )
+
+    hours, minutes = divmod(
+        minutes,
+        60,
+    )
+
+    if hours:
+
+        return (
+            f"{hours:02d}:"
+            f"{minutes:02d}:"
+            f"{secs:02d}"
+        )
+
+    return (
+        f"{minutes:02d}:"
+        f"{secs:02d}"
+    )
+
+
+def _seconds_until_expiry() -> int:
+
+    started_at = _parse_datetime(
+        st.session_state.get(
+            "session_started_at"
+        )
+    )
+
+    if not started_at:
+
+        return 0
+
+    timeout_minutes = max(
+        1,
+        int(
+            st.session_state.get(
+                "session_timeout_minutes",
+                60,
+            )
+        ),
+    )
+
+    expires_at = (
+        started_at
+        + timedelta(
+            minutes=timeout_minutes
+        )
+    )
+
+    return max(
+        0,
+        int(
+            (
+                expires_at
+                - datetime.now(timezone.utc)
+            ).total_seconds()
+        ),
+    )
+
+
+# =========================================================
+# TIMER FRAGMENT
+# =========================================================
+
+@st.fragment(run_every=1)
+def _session_timer():
+
+    remaining = _seconds_until_expiry()
+
+    timer_col, logout_col = st.columns(
+        [5, 1]
+    )
+
+    with timer_col:
+
+        if remaining <= 0:
+
+            st.error(
+                "⏰ Session expired"
+            )
+
+            st.session_state.running = False
+
+        elif remaining <= 60:
+
+            st.error(
+                f"⏳ Session time left: "
+                f"**{_format_remaining(remaining)}**"
+            )
+
+        else:
+
+            st.markdown(
+                f"""
+                <div style="
+                    color:#ff5268;
+                    font-size:0.86rem;
+                    font-weight:750;
+                    text-align:right;
+                    padding:7px 8px;
+                ">
+                    ⏳ { _format_remaining(remaining) }
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    with logout_col:
+
+        if st.button(
+            "Logout",
+            key="live_logout_button",
+            use_container_width=True,
+        ):
+
+            _logout_everywhere()
+
+            st.rerun()
+
+    if remaining <= 0:
+
+        _logout_everywhere()
+
+        st.rerun()
+
+
+_session_timer()
+
+
+# =========================================================
+# SEARCH STATE
+# =========================================================
+
+search_defaults = {
 
     "running": False,
 
@@ -568,10 +1198,9 @@ defaults = {
     "searched_count": 0,
 
     "active_page": "Search",
-
 }
 
-for key, value in defaults.items():
+for key, value in search_defaults.items():
 
     if key not in st.session_state:
 
@@ -594,19 +1223,16 @@ st.markdown(
             rgba(80,110,255,.18),
             transparent 30%
         ),
-
         radial-gradient(
             circle at 90% 10%,
             rgba(180,70,255,.16),
             transparent 30%
         ),
-
         radial-gradient(
             circle at 50% 100%,
             rgba(40,120,255,.10),
             transparent 35%
         ),
-
         linear-gradient(
             135deg,
             #05060a,
@@ -621,7 +1247,7 @@ st.markdown(
 
     max-width:1450px;
 
-    padding-top:2rem;
+    padding-top:1.3rem;
 
     padding-bottom:4rem;
 }
@@ -761,67 +1387,6 @@ input {
         rgba(75,95,255,.28);
 }
 
-.current-mc-card {
-
-    text-align:center;
-
-    padding:25px 20px;
-
-    margin-top:20px;
-
-    border-radius:24px;
-
-    background:
-        linear-gradient(
-            135deg,
-            rgba(90,110,255,.13),
-            rgba(160,70,255,.08)
-        );
-
-    border:
-        1px solid
-        rgba(130,150,255,.18);
-}
-
-.live-dot {
-
-    display:inline-block;
-
-    width:10px;
-
-    height:10px;
-
-    border-radius:50%;
-
-    background:#36ff8a;
-
-    box-shadow:
-        0 0 8px #36ff8a,
-        0 0 20px #36ff8a;
-
-    animation:pulse 1.4s infinite;
-
-    margin-right:8px;
-}
-
-@keyframes pulse {
-
-    0% {
-        transform:scale(.85);
-        opacity:.6;
-    }
-
-    50% {
-        transform:scale(1.2);
-        opacity:1;
-    }
-
-    100% {
-        transform:scale(.85);
-        opacity:.6;
-    }
-}
-
 .admin-header {
 
     font-size:2rem;
@@ -856,7 +1421,9 @@ with header_col1:
     )
 
     st.markdown(
-        '<div class="hero-title">✦ MC Search</div>',
+        '<div class="hero-title">'
+        '✦ MC Search'
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -868,10 +1435,9 @@ with header_col1:
     )
 
     st.markdown(
-        "</div>",
+        '</div>',
         unsafe_allow_html=True,
     )
-
 
 with header_col2:
 
@@ -882,12 +1448,7 @@ with header_col2:
         use_container_width=True,
     ):
 
-        log_action(
-            "LOGOUT",
-            details="User signed out",
-        )
-
-        logout_user()
+        _logout_everywhere()
 
         st.rerun()
 
@@ -963,7 +1524,7 @@ if (
     )
 
     st.markdown(
-        "</div>",
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -1000,8 +1561,25 @@ if (
                     users
                 )
 
+                display_columns = [
+                    "username",
+                    "role",
+                    "active",
+                    "search_delay_seconds",
+                    "session_timeout_minutes",
+                    "created_at",
+                ]
+
+                display_columns = [
+                    column
+                    for column in display_columns
+                    if column in users_df.columns
+                ]
+
                 st.dataframe(
-                    users_df,
+                    users_df[
+                        display_columns
+                    ],
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -1019,13 +1597,13 @@ if (
             )
 
         st.markdown(
-            "</div>",
+            '</div>',
             unsafe_allow_html=True,
         )
 
-        # -------------------------------------------------
+        # =================================================
         # CREATE USER
-        # -------------------------------------------------
+        # =================================================
 
         st.markdown(
             '<div class="glass-card">',
@@ -1142,13 +1720,13 @@ if (
                     )
 
         st.markdown(
-            "</div>",
+            '</div>',
             unsafe_allow_html=True,
         )
 
-        # -------------------------------------------------
+        # =================================================
         # USER ACTIONS
-        # -------------------------------------------------
+        # =================================================
 
         st.markdown(
             '<div class="glass-card">',
@@ -1212,64 +1790,118 @@ if (
                         )
                     )
 
-                    status_text = (
-                        "ACTIVE"
-                        if current_active
-                        else "INACTIVE"
+                    current_delay = max(
+                        0,
+                        int(
+                            selected_record.get(
+                                "search_delay_seconds",
+                                1,
+                            )
+                        ),
+                    )
+
+                    current_timeout = max(
+                        1,
+                        int(
+                            selected_record.get(
+                                "session_timeout_minutes",
+                                60,
+                            )
+                        ),
                     )
 
                     if current_active:
 
                         st.success(
-                            f"Current status: {status_text}"
+                            "Current status: ACTIVE"
                         )
 
                     else:
 
                         st.error(
-                            f"Current status: {status_text}"
+                            "Current status: INACTIVE"
                         )
 
-                action_col1, action_col2 = (
-                    st.columns(2)
-                )
+                    # -------------------------------------
+                    # SETTINGS
+                    # -------------------------------------
 
-                with action_col1:
+                    st.markdown(
+                        "#### ⚙ Search & Session Settings"
+                    )
+
+                    setting_col1, setting_col2 = (
+                        st.columns(2)
+                    )
+
+                    with setting_col1:
+
+                        delay_value = st.number_input(
+                            "Search delay (seconds)",
+                            min_value=0,
+                            max_value=3600,
+                            value=current_delay,
+                            step=1,
+                            key=(
+                                f"delay_"
+                                f"{selected_user}"
+                            ),
+                            help=(
+                                "Delay between sequential "
+                                "MC searches."
+                            ),
+                        )
+
+                    with setting_col2:
+
+                        timeout_value = st.number_input(
+                            "Session timeout (minutes)",
+                            min_value=1,
+                            max_value=10080,
+                            value=current_timeout,
+                            step=1,
+                            key=(
+                                f"timeout_"
+                                f"{selected_user}"
+                            ),
+                            help=(
+                                "Maximum login session "
+                                "duration."
+                            ),
+                        )
 
                     if st.button(
-                        (
-                            "🔴 Disable User"
-                            if current_active
-                            else "🟢 Enable User"
-                        ),
+                        "💾 Save Search & Session Settings",
                         use_container_width=True,
-                        key="toggle_user_status",
+                        key=(
+                            f"save_settings_"
+                            f"{selected_user}"
+                        ),
                     ):
-
-                        new_active = (
-                            not current_active
-                        )
 
                         try:
 
-                            update_user(
+                            update_user_settings(
                                 selected_user,
-                                {
-                                    "active":
-                                        new_active
-                                },
+                                search_delay_seconds=int(
+                                    delay_value
+                                ),
+                                session_timeout_minutes=int(
+                                    timeout_value
+                                ),
                             )
 
                             log_action(
-                                "USER_STATUS_CHANGE",
+                                "USER_SETTINGS_CHANGE",
                                 details=(
-                                    f"{selected_user} "
-                                    f"active={new_active}"
+                                    f"{selected_user}: "
+                                    f"delay={delay_value}s, "
+                                    f"timeout={timeout_value}m"
                                 ),
                             )
 
                             st.success(
-                                "User status updated."
+                                "✓ Settings saved."
                             )
 
                             st.rerun()
@@ -1277,65 +1909,131 @@ if (
                         except Exception as exc:
 
                             st.error(
-                                f"Unable to update user: {exc}"
+                                "Unable to save settings: "
+                                f"{exc}"
                             )
 
-                with action_col2:
+                    st.divider()
 
-                    reset_password = (
-                        st.text_input(
-                            "New password",
-                            type="password",
-                            key="admin_reset_password",
-                        )
+                    # -------------------------------------
+                    # STATUS / PASSWORD
+                    # -------------------------------------
+
+                    action_col1, action_col2 = (
+                        st.columns(2)
                     )
 
-                    if st.button(
-                        "🔑 Reset Password",
-                        use_container_width=True,
-                        key="reset_user_password",
-                    ):
+                    with action_col1:
 
-                        if len(
-                            reset_password
-                        ) < 8:
+                        if st.button(
+                            (
+                                "🔴 Disable User"
+                                if current_active
+                                else "🟢 Enable User"
+                            ),
+                            use_container_width=True,
+                            key="toggle_user_status",
+                        ):
 
-                            st.error(
-                                "Password must be at least "
-                                "8 characters."
+                            new_active = (
+                                not current_active
                             )
-
-                        else:
 
                             try:
 
                                 update_user(
                                     selected_user,
                                     {
-                                        "password_hash":
-                                            hash_password(
-                                                reset_password
-                                            )
+                                        "active":
+                                            new_active
                                     },
                                 )
 
                                 log_action(
-                                    "PASSWORD_RESET",
+                                    "USER_STATUS_CHANGE",
                                     details=(
-                                        f"Password reset "
-                                        f"for {selected_user}"
+                                        f"{selected_user} "
+                                        f"active={new_active}"
                                     ),
                                 )
 
                                 st.success(
-                                    "Password reset successfully."
+                                    "User status updated."
                                 )
+
+                                st.rerun()
 
                             except Exception as exc:
 
                                 st.error(
-                                    f"Unable to reset password: {exc}"
+                                    "Unable to update user: "
+                                    f"{exc}"
                                 )
+
+                    with action_col2:
+
+                        reset_password = (
+                            st.text_input(
+                                "New password",
+                                type="password",
+                                key="admin_reset_password",
+                            )
+                        )
+
+                        if st.button(
+                            "🔑 Reset Password",
+                            use_container_width=True,
+                            key="reset_user_password",
+                        ):
+
+                            if len(
+                                reset_password
+                            ) < 8:
+
+                                st.error(
+                                    "Password must be at least "
+                                    "8 characters."
+                                )
+
+                            else:
+
+                                try:
+
+                                    update_user(
+                                        selected_user,
+                                        {
+                                            "password_hash":
+                                                hash_password(
+                                                    reset_password
+                                                )
+                                        },
+                                    )
+
+                                    # Reset password should also
+                                    # destroy any existing session.
+                                    clear_user_session(
+                                        selected_user
+                                    )
+
+                                    log_action(
+                                        "PASSWORD_RESET",
+                                        details=(
+                                            f"Password reset "
+                                            f"for {selected_user}"
+                                        ),
+                                    )
+
+                                    st.success(
+                                        "Password reset successfully. "
+                                        "Existing session was signed out."
+                                    )
+
+                                except Exception as exc:
+
+                                    st.error(
+                                        "Unable to reset password: "
+                                        f"{exc}"
+                                    )
 
             else:
 
@@ -1350,7 +2048,7 @@ if (
             )
 
         st.markdown(
-            "</div>",
+            '</div>',
             unsafe_allow_html=True,
         )
 
@@ -1384,8 +2082,27 @@ if (
         )
 
         st.caption(
+            "Each username has one active database session. "
+            "A replacement login invalidates the previous session."
+        )
+
+        st.caption(
             "Passwords are stored as SHA-256 hashes. "
             "The application does not display stored passwords."
+        )
+
+        st.markdown(
+            "#### Current Session"
+        )
+
+        st.write(
+            f"Search delay: "
+            f"{st.session_state.search_delay_seconds} second(s)"
+        )
+
+        st.write(
+            f"Session timeout: "
+            f"{st.session_state.session_timeout_minutes} minute(s)"
         )
 
         if st.button(
@@ -1407,7 +2124,7 @@ if (
             )
 
         st.markdown(
-            "</div>",
+            '</div>',
             unsafe_allow_html=True,
         )
 
@@ -1451,7 +2168,7 @@ if (
             )
 
         st.markdown(
-            "</div>",
+            '</div>',
             unsafe_allow_html=True,
         )
 
@@ -1490,7 +2207,12 @@ start_input = st.text_input(
 
 st.caption(
     "Enter the starting MC. The app searches sequentially "
-    "one MC at a time. Press STOP whenever you want."
+    "one MC at a time."
+)
+
+st.caption(
+    f"Current search delay: "
+    f"{st.session_state.search_delay_seconds} second(s)"
 )
 
 
@@ -1542,10 +2264,6 @@ else:
 
 # =========================================================
 # CURRENT MC DISPLAY
-#
-# IMPORTANT:
-# No HTML here.
-# This prevents the <div class=...> problem.
 # =========================================================
 
 st.markdown(
@@ -1612,7 +2330,7 @@ with col3:
 
 
 st.markdown(
-    "</div>",
+    '</div>',
     unsafe_allow_html=True,
 )
 
@@ -1649,8 +2367,6 @@ if clear_button:
 
 if stop_button:
 
-    # current_mc is the NEXT MC that would be searched.
-    # Therefore the last completed MC is current_mc - 1.
     if (
         st.session_state.current_mc
         is not None
@@ -1732,7 +2448,7 @@ if start_button:
 
 
 # =========================================================
-# LIVE STATUS
+# LIVE SEARCH STATUS
 # =========================================================
 
 if st.session_state.running:
@@ -1746,13 +2462,9 @@ if st.session_state.running:
         "Searching sequential MC numbers automatically..."
     )
 
-
 elif (
     st.session_state.searched_count > 0
 ):
-
-    # Native Streamlit message.
-    # No HTML and no "paused" wording.
 
     st.success(
         "✓ Search stopped"
@@ -1809,7 +2521,26 @@ if st.session_state.running:
         current_mc + 1
     )
 
-    time.sleep(0.5)
+    # -----------------------------------------------------
+    # IMPORTANT:
+    # This is now the user's saved database delay.
+    # -----------------------------------------------------
+
+    delay_seconds = max(
+        0,
+        int(
+            st.session_state.get(
+                "search_delay_seconds",
+                1,
+            )
+        ),
+    )
+
+    if delay_seconds > 0:
+
+        time.sleep(
+            delay_seconds
+        )
 
     st.rerun()
 
@@ -2097,7 +2828,7 @@ if st.session_state.results:
     )
 
     st.markdown(
-        "</div>",
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -2161,7 +2892,7 @@ if st.session_state.results:
         )
 
     st.markdown(
-        "</div>",
+        '</div>',
         unsafe_allow_html=True,
     )
 
