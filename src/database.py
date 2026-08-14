@@ -53,7 +53,7 @@ def get_user(username: str):
     response = (
         client.table("users")
         .select("*")
-        .eq("username", str(username).strip())
+        .eq("username", username)
         .limit(1)
         .execute()
     )
@@ -76,19 +76,17 @@ def create_user_record(
         client.table("users")
         .insert(
             {
-                "username": str(username).strip(),
+                "username": username,
                 "password_hash": password_hash,
                 "role": role,
                 "active": True,
 
-                # Default search delay.
-                # Decimal values are supported.
+                # DEFAULT SEARCH DELAY
                 "search_delay_seconds": 0.5,
 
-                # Default session timeout.
+                # DEFAULT SESSION TIMEOUT
                 "session_timeout_minutes": 60,
 
-                # New account starts without a session.
                 "session_token": None,
                 "session_started_at": None,
             }
@@ -109,7 +107,7 @@ def update_user(
     return (
         client.table("users")
         .update(values)
-        .eq("username", str(username).strip())
+        .eq("username", username)
         .execute()
     )
 
@@ -150,7 +148,7 @@ def delete_user(username: str):
     return (
         client.table("users")
         .delete()
-        .eq("username", str(username).strip())
+        .eq("username", username)
         .execute()
     )
 
@@ -170,8 +168,6 @@ def set_user_active(
         "active": bool(active),
     }
 
-    # Disabling a user also destroys
-    # their active database session.
     if not active:
 
         values["session_token"] = None
@@ -180,7 +176,7 @@ def set_user_active(
     return (
         client.table("users")
         .update(values)
-        .eq("username", str(username).strip())
+        .eq("username", username)
         .execute()
     )
 
@@ -197,71 +193,20 @@ def update_user_settings(
 
     values = {}
 
-    # -----------------------------------------------------
-    # SEARCH DELAY
-    #
-    # Allowed:
-    # 0
-    # 0.1
-    # 0.5
-    # 1
-    # 2.5
-    # etc.
-    #
-    # Maximum = 60 seconds.
-    # -----------------------------------------------------
-
     if search_delay_seconds is not None:
 
-        try:
-            delay = float(
-                search_delay_seconds
-            )
-        except (TypeError, ValueError):
-            raise ValueError(
-                "Search delay must be a number."
-            )
-
-        if delay < 0:
-            delay = 0.0
-
-        if delay > 60:
-            delay = 60.0
-
-        # Keep reasonable precision.
-        delay = round(delay, 3)
-
-        values[
-            "search_delay_seconds"
-        ] = delay
-
-    # -----------------------------------------------------
-    # SESSION TIMEOUT
-    #
-    # Minimum = 1 minute
-    # Maximum = 1440 minutes / 24 hours
-    # -----------------------------------------------------
+        # ZERO IS VALID
+        values["search_delay_seconds"] = max(
+            0.0,
+            float(search_delay_seconds),
+        )
 
     if session_timeout_minutes is not None:
 
-        try:
-            timeout = int(
-                session_timeout_minutes
-            )
-        except (TypeError, ValueError):
-            raise ValueError(
-                "Session timeout must be a whole number."
-            )
-
-        if timeout < 1:
-            timeout = 1
-
-        if timeout > 1440:
-            timeout = 1440
-
-        values[
-            "session_timeout_minutes"
-        ] = timeout
+        values["session_timeout_minutes"] = max(
+            1,
+            int(session_timeout_minutes),
+        )
 
     if not values:
         return None
@@ -271,33 +216,9 @@ def update_user_settings(
     return (
         client.table("users")
         .update(values)
-        .eq("username", str(username).strip())
+        .eq("username", username)
         .execute()
     )
-
-
-def get_user_settings(username: str):
-
-    client = get_supabase()
-
-    response = (
-        client.table("users")
-        .select(
-            """
-            username,
-            search_delay_seconds,
-            session_timeout_minutes
-            """
-        )
-        .eq("username", str(username).strip())
-        .limit(1)
-        .execute()
-    )
-
-    if not response.data:
-        return None
-
-    return response.data[0]
 
 
 # =========================================================
@@ -315,6 +236,8 @@ def create_user_session(
         timezone.utc
     ).isoformat()
 
+    # Updating the existing session_token automatically
+    # invalidates the previous browser/tab session.
     response = (
         client.table("users")
         .update(
@@ -323,14 +246,8 @@ def create_user_session(
                 "session_started_at": now,
             }
         )
-        .eq(
-            "username",
-            str(username).strip(),
-        )
-        .eq(
-            "active",
-            True,
-        )
+        .eq("username", username)
+        .eq("active", True)
         .execute()
     )
 
@@ -347,17 +264,13 @@ def get_user_session(username: str):
             """
             username,
             active,
-            role,
             search_delay_seconds,
             session_timeout_minutes,
             session_token,
             session_started_at
             """
         )
-        .eq(
-            "username",
-            str(username).strip(),
-        )
+        .eq("username", username)
         .limit(1)
         .execute()
     )
@@ -373,18 +286,13 @@ def validate_user_session(
     session_token: str,
 ):
 
-    record = get_user_session(
-        username
-    )
+    record = get_user_session(username)
 
     if not record:
         return False, "missing"
 
     if not bool(
-        record.get(
-            "active",
-            True,
-        )
+        record.get("active", True)
     ):
         return False, "inactive"
 
@@ -399,16 +307,8 @@ def validate_user_session(
     if not database_token:
         return False, "no_session"
 
-    # -----------------------------------------------------
-    # SINGLE SESSION PROTECTION
-    #
-    # When a second login happens, the database token
-    # changes. The old browser therefore fails here.
-    # -----------------------------------------------------
-
-    if not hmac_compare(
-        database_token,
-        str(session_token),
+    if database_token != str(
+        session_token
     ):
         return False, "session_replaced"
 
@@ -469,21 +369,6 @@ def validate_user_session(
     return True, "ok"
 
 
-def hmac_compare(
-    first: str,
-    second: str,
-) -> bool:
-
-    # Kept here to avoid importing auth.py
-    # from database.py and creating circular imports.
-    import hmac
-
-    return hmac.compare_digest(
-        str(first),
-        str(second),
-    )
-
-
 def clear_user_session(
     username: str,
     session_token: str | None = None,
@@ -499,14 +384,9 @@ def clear_user_session(
                 "session_started_at": None,
             }
         )
-        .eq(
-            "username",
-            str(username).strip(),
-        )
+        .eq("username", username)
     )
 
-    # Only clear the session if the supplied token
-    # is still the active token.
     if session_token:
 
         query = query.eq(
@@ -598,6 +478,35 @@ def get_audit_logs(
     response = query.execute()
 
     return response.data or []
+
+
+# =========================================================
+# ACCESS REQUEST
+# =========================================================
+
+def create_access_request(
+    whatsapp_number: str,
+):
+
+    number = str(
+        whatsapp_number
+    ).strip()
+
+    if not number:
+        raise ValueError(
+            "WhatsApp number is required."
+        )
+
+    # Keep the request limited to the phone number.
+    # No username or password is requested.
+    return insert_audit(
+        username="ACCESS_REQUEST",
+        action="ACCESS_REQUEST",
+        mc_number="",
+        details=(
+            f"WhatsApp: {number}"
+        ),
+    )
 
 
 # =========================================================
