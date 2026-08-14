@@ -13,18 +13,16 @@ from src.auth import (
     logout_user,
     is_admin,
     is_authenticated,
-    get_search_delay,
-    get_session_timeout_minutes,
 )
 
-from src.auth import hash_password
-
 from src.database import (
+    get_user,
+    get_user_session,
     create_user_record,
     update_user,
     update_user_settings,
     list_users,
-    get_user,
+    set_user_active,
 )
 
 from src.audit import (
@@ -35,7 +33,7 @@ from src.audit import (
 
 
 # =========================================================
-# PAGE
+# PAGE CONFIG
 # =========================================================
 
 st.set_page_config(
@@ -47,29 +45,45 @@ st.set_page_config(
 
 
 # =========================================================
-# LOGIN
+# AUTH
 # =========================================================
 
 require_login()
 
+# The database-backed session is checked every rerun.
+# If another browser/tab logged in using the same account,
+# the previous session becomes invalid automatically.
+if not is_authenticated():
+
+    st.stop()
+
 
 # =========================================================
-# SESSION STATE
+# SEARCH SESSION STATE
 # =========================================================
 
 defaults = {
+
     "running": False,
+
     "start_mc": "",
+
     "current_mc": None,
+
     "last_searched_mc": None,
+
     "results": [],
+
     "searched_count": 0,
+
     "active_page": "Search",
+
 }
 
 for key, value in defaults.items():
 
     if key not in st.session_state:
+
         st.session_state[key] = value
 
 
@@ -82,17 +96,26 @@ st.markdown(
 <style>
 
 .stApp {
+
     background:
         radial-gradient(
             circle at 10% 10%,
             rgba(80,110,255,.18),
             transparent 30%
         ),
+
         radial-gradient(
             circle at 90% 10%,
             rgba(180,70,255,.16),
             transparent 30%
         ),
+
+        radial-gradient(
+            circle at 50% 100%,
+            rgba(40,120,255,.10),
+            transparent 35%
+        ),
+
         linear-gradient(
             135deg,
             #05060a,
@@ -104,12 +127,16 @@ st.markdown(
 }
 
 .block-container {
+
     max-width:1450px;
+
     padding-top:2rem;
+
     padding-bottom:4rem;
 }
 
 .glass-card {
+
     background:
         linear-gradient(
             135deg,
@@ -122,7 +149,9 @@ st.markdown(
         rgba(255,255,255,.12);
 
     border-radius:28px;
+
     padding:28px;
+
     margin-bottom:20px;
 
     box-shadow:
@@ -138,8 +167,11 @@ st.markdown(
 }
 
 .hero-title {
+
     font-size:3rem;
+
     font-weight:800;
+
     letter-spacing:-.05em;
 
     background:
@@ -151,42 +183,22 @@ st.markdown(
         );
 
     -webkit-background-clip:text;
+
     -webkit-text-fill-color:transparent;
 }
 
 .hero-subtitle {
-    color:rgba(235,240,255,.62);
+
+    color:
+        rgba(235,240,255,.62);
+
     font-size:1rem;
+
     margin-top:6px;
 }
 
-.current-number {
-    font-size:3rem;
-    font-weight:850;
-    text-align:center;
-    color:white;
-}
-
-.timer-box {
-    background:#28070b;
-    border:1px solid #ff394f;
-    color:#ff4d5f;
-    border-radius:12px;
-    padding:8px 13px;
-    text-align:center;
-    font-weight:800;
-}
-
-.admin-header {
-    font-size:2rem;
-    font-weight:800;
-}
-
-.admin-small {
-    color:#9da6c0;
-}
-
 div[data-baseweb="input"] {
+
     background:
         rgba(255,255,255,.065)
         !important;
@@ -200,13 +212,31 @@ div[data-baseweb="input"] {
         18px !important;
 }
 
+div[data-baseweb="input"]:focus-within {
+
+    border-color:
+        rgba(120,145,255,.85)
+        !important;
+
+    box-shadow:
+        0 0 0 3px
+        rgba(100,125,255,.12),
+
+        0 0 30px
+        rgba(80,100,255,.15);
+}
+
 input {
+
     color:white !important;
 }
 
 .stButton > button {
+
     min-height:50px;
-    border-radius:18px !important;
+
+    border-radius:
+        18px !important;
 
     border:
         1px solid
@@ -221,7 +251,66 @@ input {
         ) !important;
 
     color:white !important;
+
     font-weight:700 !important;
+
+    transition:
+        transform .2s ease,
+        box-shadow .2s ease;
+}
+
+.stButton > button:hover {
+
+    transform:
+        translateY(-2px)
+        scale(1.015);
+
+    box-shadow:
+        0 12px 35px
+        rgba(75,95,255,.28);
+}
+
+.current-mc-card {
+
+    text-align:center;
+
+    padding:25px 20px;
+
+    margin-top:20px;
+
+    border-radius:24px;
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(90,110,255,.13),
+            rgba(160,70,255,.08)
+        );
+
+    border:
+        1px solid
+        rgba(130,150,255,.18);
+}
+
+.admin-header {
+
+    font-size:2rem;
+
+    font-weight:800;
+}
+
+.admin-small {
+
+    color:#9da6c0;
+}
+
+.delay-info {
+
+    color:#9da6c0;
+
+    font-size:.9rem;
+
+    margin-top:4px;
 }
 
 </style>
@@ -231,16 +320,7 @@ input {
 
 
 # =========================================================
-# SESSION VALIDATION
-# =========================================================
-
-if not is_authenticated():
-
-    st.rerun()
-
-
-# =========================================================
-# HEADER
+# TOP HEADER
 # =========================================================
 
 header_col1, header_col2 = st.columns(
@@ -255,9 +335,7 @@ with header_col1:
     )
 
     st.markdown(
-        '<div class="hero-title">'
-        '✦ MC Search'
-        '</div>',
+        '<div class="hero-title">✦ MC Search</div>',
         unsafe_allow_html=True,
     )
 
@@ -269,7 +347,7 @@ with header_col1:
     )
 
     st.markdown(
-        '</div>',
+        "</div>",
         unsafe_allow_html=True,
     )
 
@@ -294,33 +372,6 @@ with header_col2:
 
 
 # =========================================================
-# SESSION TIMER / USER INFO
-# =========================================================
-
-timer_col1, timer_col2, timer_col3 = (
-    st.columns([1, 1, 4])
-)
-
-with timer_col1:
-
-    delay_value = get_search_delay()
-
-    st.caption(
-        f"Search delay: {delay_value:.1f}s"
-    )
-
-with timer_col2:
-
-    timeout_value = (
-        get_session_timeout_minutes()
-    )
-
-    st.caption(
-        f"Session: {timeout_value} min"
-    )
-
-
-# =========================================================
 # NAVIGATION
 # =========================================================
 
@@ -330,25 +381,29 @@ if is_admin():
 
     with nav1:
 
-        if st.button(
+        search_page = st.button(
             "🔎 MC Search",
             use_container_width=True,
-        ):
-
-            st.session_state.active_page = (
-                "Search"
-            )
+        )
 
     with nav2:
 
-        if st.button(
+        admin_page = st.button(
             "⚙️ Admin Panel",
             use_container_width=True,
-        ):
+        )
 
-            st.session_state.active_page = (
-                "Admin"
-            )
+    if search_page:
+
+        st.session_state.active_page = (
+            "Search"
+        )
+
+    if admin_page:
+
+        st.session_state.active_page = (
+            "Admin"
+        )
 
 else:
 
@@ -381,25 +436,24 @@ if (
 
     st.markdown(
         '<div class="admin-small">'
-        'Manage users, settings and audit activity.'
+        'Manage users, security, search delay and audit activity.'
         '</div>',
         unsafe_allow_html=True,
     )
 
     st.markdown(
-        '</div>',
+        "</div>",
         unsafe_allow_html=True,
     )
 
-    tab_users, tab_security, tab_audit = (
-        st.tabs(
-            [
-                "👥 Users",
-                "🛡️ Security",
-                "📋 Audit Log",
-            ]
-        )
+    tab_users, tab_security, tab_audit = st.tabs(
+        [
+            "👥 Users",
+            "🛡️ Security",
+            "📋 Audit Log",
+        ]
     )
+
 
     # =====================================================
     # USERS
@@ -426,15 +480,23 @@ if (
                     users
                 )
 
-                # Hide session token from UI.
-                if "session_token" in users_df.columns:
+                # Don't expose session tokens in
+                # the visible admin table.
+                hidden_columns = [
+                    "session_token",
+                    "session_started_at",
+                ]
 
-                    users_df = users_df.drop(
-                        columns=["session_token"]
-                    )
+                visible_columns = [
+                    c
+                    for c in users_df.columns
+                    if c not in hidden_columns
+                ]
 
                 st.dataframe(
-                    users_df,
+                    users_df[
+                        visible_columns
+                    ],
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -456,6 +518,7 @@ if (
             unsafe_allow_html=True,
         )
 
+
         # =================================================
         # CREATE USER
         # =================================================
@@ -474,12 +537,14 @@ if (
         ):
 
             new_username = st.text_input(
-                "Username"
+                "Username",
+                placeholder="username",
             )
 
             new_password = st.text_input(
                 "Password",
                 type="password",
+                placeholder="Password",
             )
 
             new_role = st.selectbox(
@@ -520,7 +585,9 @@ if (
 
                 try:
 
-                    users = list_users()
+                    existing_users = (
+                        list_users()
+                    )
 
                     exists = any(
                         str(
@@ -530,7 +597,7 @@ if (
                             )
                         ).lower()
                         == username_clean.lower()
-                        for u in users
+                        for u in existing_users
                     )
 
                     if exists:
@@ -540,6 +607,8 @@ if (
                         )
 
                     else:
+
+                        from src.auth import hash_password
 
                         create_user_record(
                             username_clean,
@@ -553,12 +622,14 @@ if (
                             "CREATE_USER",
                             details=(
                                 f"Created user "
-                                f"{username_clean}"
+                                f"{username_clean} "
+                                f"with role {new_role}"
                             ),
                         )
 
                         st.success(
-                            "✓ User created."
+                            "✓ User created with "
+                            "0.5 second search delay."
                         )
 
                         st.rerun()
@@ -574,8 +645,9 @@ if (
             unsafe_allow_html=True,
         )
 
+
         # =================================================
-        # USER SETTINGS
+        # USER ACTIONS
         # =================================================
 
         st.markdown(
@@ -584,7 +656,7 @@ if (
         )
 
         st.subheader(
-            "🔧 User Settings"
+            "🔧 User Actions"
         )
 
         try:
@@ -604,7 +676,8 @@ if (
                         "username",
                         "",
                     )
-                ) != st.session_state.username
+                )
+                != st.session_state.username
             ]
 
             if editable_users:
@@ -612,7 +685,7 @@ if (
                 selected_user = st.selectbox(
                     "Select user",
                     editable_users,
-                    key="settings_user",
+                    key="admin_selected_user",
                 )
 
                 selected_record = next(
@@ -624,12 +697,20 @@ if (
                                 "username",
                                 "",
                             )
-                        ) == selected_user
+                        )
+                        == selected_user
                     ),
                     None,
                 )
 
                 if selected_record:
+
+                    current_active = bool(
+                        selected_record.get(
+                            "active",
+                            True,
+                        )
+                    )
 
                     current_delay = float(
                         selected_record.get(
@@ -647,182 +728,232 @@ if (
                         or 60
                     )
 
-                    delay_col, timeout_col = (
-                        st.columns(2)
-                    )
-
-                    with delay_col:
-
-                        new_delay = st.number_input(
-                            "Search delay (seconds)",
-                            min_value=0.0,
-                            max_value=60.0,
-                            value=current_delay,
-                            step=0.1,
-                            format="%.1f",
-                        )
-
-                    with timeout_col:
-
-                        new_timeout = st.number_input(
-                            "Session timeout (minutes)",
-                            min_value=1,
-                            max_value=1440,
-                            value=current_timeout,
-                            step=1,
-                        )
-
-                    if st.button(
-                        "💾 Save Settings",
-                        use_container_width=True,
-                        key="save_user_settings",
-                    ):
-
-                        update_user_settings(
-                            selected_user,
-                            search_delay_seconds=float(
-                                new_delay
-                            ),
-                            session_timeout_minutes=int(
-                                new_timeout
-                            ),
-                        )
-
-                        log_action(
-                            "USER_SETTINGS_CHANGE",
-                            details=(
-                                f"{selected_user}: "
-                                f"delay={new_delay}s, "
-                                f"timeout={new_timeout}m"
-                            ),
-                        )
-
-                        st.success(
-                            "✓ User settings saved."
-                        )
-
-                        st.rerun()
-
-                    # -------------------------------------
-                    # ACTIVE / INACTIVE
-                    # -------------------------------------
-
-                    current_active = bool(
-                        selected_record.get(
-                            "active",
-                            True,
-                        )
+                    status_text = (
+                        "ACTIVE"
+                        if current_active
+                        else "INACTIVE"
                     )
 
                     if current_active:
 
                         st.success(
-                            "Current status: ACTIVE"
+                            f"Current status: {status_text}"
                         )
 
                     else:
 
                         st.error(
-                            "Current status: INACTIVE"
+                            f"Current status: {status_text}"
                         )
 
-                    if st.button(
-                        (
-                            "🔴 Disable User"
-                            if current_active
-                            else "🟢 Enable User"
-                        ),
-                        use_container_width=True,
-                        key="toggle_user_status",
-                    ):
 
-                        update_user(
-                            selected_user,
-                            {
-                                "active":
-                                    not current_active,
-                                "session_token":
-                                    None
-                                    if current_active
-                                    else selected_record.get(
-                                        "session_token"
-                                    ),
-                                "session_started_at":
-                                    None
-                                    if current_active
-                                    else selected_record.get(
-                                        "session_started_at"
-                                    ),
-                            },
-                        )
+                    # -------------------------------------
+                    # SEARCH SETTINGS
+                    # -------------------------------------
 
-                        log_action(
-                            "USER_STATUS_CHANGE",
-                            details=(
-                                f"{selected_user} "
-                                f"active="
-                                f"{not current_active}"
+                    st.markdown(
+                        "#### ⚡ Search & Session Settings"
+                    )
+
+                    settings_col1, settings_col2 = (
+                        st.columns(2)
+                    )
+
+                    with settings_col1:
+
+                        delay_value = st.number_input(
+                            "Search delay (seconds)",
+                            min_value=0.0,
+                            max_value=60.0,
+                            value=float(
+                                current_delay
+                            ),
+                            step=0.1,
+                            format="%.1f",
+                            key=(
+                                "delay_"
+                                + selected_user
+                            ),
+                            help=(
+                                "0 = no artificial delay. "
+                                "Default for new users is 0.5 seconds."
                             ),
                         )
 
-                        st.success(
-                            "User status updated."
+                    with settings_col2:
+
+                        timeout_value = st.number_input(
+                            "Session timeout (minutes)",
+                            min_value=1,
+                            max_value=1440,
+                            value=int(
+                                current_timeout
+                            ),
+                            step=1,
+                            key=(
+                                "timeout_"
+                                + selected_user
+                            ),
                         )
 
-                        st.rerun()
-
-                    # -------------------------------------
-                    # RESET PASSWORD
-                    # -------------------------------------
-
-                    reset_password = st.text_input(
-                        "New password",
-                        type="password",
-                        key="reset_password",
+                    st.caption(
+                        f"Current delay: {current_delay:g}s • "
+                        f"Current session timeout: "
+                        f"{current_timeout} minute(s)"
                     )
 
                     if st.button(
-                        "🔑 Reset Password",
+                        "💾 Save User Settings",
                         use_container_width=True,
+                        key=(
+                            "save_settings_"
+                            + selected_user
+                        ),
                     ):
 
-                        if len(reset_password) < 8:
+                        try:
 
-                            st.error(
-                                "Password must be at least "
-                                "8 characters."
-                            )
-
-                        else:
-
-                            update_user(
+                            update_user_settings(
                                 selected_user,
-                                {
-                                    "password_hash":
-                                        hash_password(
-                                            reset_password
-                                        ),
-                                    # Force the user to log
-                                    # in again after password
-                                    # reset.
-                                    "session_token":
-                                        None,
-                                    "session_started_at":
-                                        None,
-                                },
+                                search_delay_seconds=float(
+                                    delay_value
+                                ),
+                                session_timeout_minutes=int(
+                                    timeout_value
+                                ),
                             )
 
                             log_action(
-                                "PASSWORD_RESET",
+                                "USER_SETTINGS_CHANGE",
                                 details=(
-                                    f"Password reset "
-                                    f"for {selected_user}"
+                                    f"{selected_user}: "
+                                    f"delay={float(delay_value):g}s, "
+                                    f"timeout={int(timeout_value)}m"
                                 ),
                             )
 
                             st.success(
-                                "Password reset successfully."
+                                "✓ User settings updated."
                             )
+
+                            st.rerun()
+
+                        except Exception as exc:
+
+                            st.error(
+                                f"Unable to save settings: {exc}"
+                            )
+
+
+                    # -------------------------------------
+                    # USER STATUS / PASSWORD
+                    # -------------------------------------
+
+                    action_col1, action_col2 = (
+                        st.columns(2)
+                    )
+
+                    with action_col1:
+
+                        if st.button(
+                            (
+                                "🔴 Disable User"
+                                if current_active
+                                else "🟢 Enable User"
+                            ),
+                            use_container_width=True,
+                            key="toggle_user_status",
+                        ):
+
+                            new_active = (
+                                not current_active
+                            )
+
+                            try:
+
+                                set_user_active(
+                                    selected_user,
+                                    new_active,
+                                )
+
+                                log_action(
+                                    "USER_STATUS_CHANGE",
+                                    details=(
+                                        f"{selected_user} "
+                                        f"active={new_active}"
+                                    ),
+                                )
+
+                                st.success(
+                                    "User status updated."
+                                )
+
+                                st.rerun()
+
+                            except Exception as exc:
+
+                                st.error(
+                                    f"Unable to update user: {exc}"
+                                )
+
+                    with action_col2:
+
+                        reset_password = (
+                            st.text_input(
+                                "New password",
+                                type="password",
+                                key="admin_reset_password",
+                            )
+                        )
+
+                        if st.button(
+                            "🔑 Reset Password",
+                            use_container_width=True,
+                            key="reset_user_password",
+                        ):
+
+                            if len(
+                                reset_password
+                            ) < 8:
+
+                                st.error(
+                                    "Password must be at least "
+                                    "8 characters."
+                                )
+
+                            else:
+
+                                try:
+
+                                    from src.auth import hash_password
+
+                                    update_user(
+                                        selected_user,
+                                        {
+                                            "password_hash":
+                                                hash_password(
+                                                    reset_password
+                                                )
+                                        },
+                                    )
+
+                                    log_action(
+                                        "PASSWORD_RESET",
+                                        details=(
+                                            f"Password reset "
+                                            f"for {selected_user}"
+                                        ),
+                                    )
+
+                                    st.success(
+                                        "Password reset successfully."
+                                    )
+
+                                except Exception as exc:
+
+                                    st.error(
+                                        f"Unable to reset password: {exc}"
+                                    )
 
             else:
 
@@ -840,6 +971,7 @@ if (
             "</div>",
             unsafe_allow_html=True,
         )
+
 
     # =====================================================
     # SECURITY
@@ -871,8 +1003,14 @@ if (
         )
 
         st.caption(
-            "A new login replaces the previous database "
-            "session token for that username."
+            "Passwords are stored as SHA-256 hashes. "
+            "The application does not display stored passwords."
+        )
+
+        st.info(
+            "Single-session protection is enabled. "
+            "When the same username logs in from another "
+            "browser or tab, the previous session is invalidated."
         )
 
         if st.button(
@@ -897,6 +1035,7 @@ if (
             "</div>",
             unsafe_allow_html=True,
         )
+
 
     # =====================================================
     # AUDIT
@@ -963,21 +1102,57 @@ st.markdown(
 # CURRENT USER SETTINGS
 # =========================================================
 
-search_delay = get_search_delay()
+current_user_record = None
 
-st.caption(
-    f"Current search delay: "
-    f"{search_delay:.1f} second(s)"
-)
+try:
+
+    current_user_record = get_user_session(
+        st.session_state.username
+    )
+
+except Exception:
+
+    current_user_record = None
+
+
+# Default delay for safety.
+search_delay = 0.5
+
+if current_user_record:
+
+    try:
+
+        search_delay = float(
+            current_user_record.get(
+                "search_delay_seconds",
+                0.5,
+            )
+        )
+
+        search_delay = max(
+            0.0,
+            search_delay,
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        search_delay = 0.5
 
 
 # =========================================================
 # START MC
 # =========================================================
 
+start_value = (
+    st.session_state.start_mc
+)
+
 start_input = st.text_input(
     "Start MC",
-    value=st.session_state.start_mc,
+    value=start_value,
     placeholder="Example: 1800000",
     disabled=st.session_state.running,
     key="start_mc_input",
@@ -985,7 +1160,11 @@ start_input = st.text_input(
 
 st.caption(
     "Enter the starting MC. The app searches sequentially "
-    "one MC at a time."
+    "one MC at a time. Press STOP whenever you want."
+)
+
+st.caption(
+    f"⚡ Search delay: {search_delay:g} second(s)"
 )
 
 
@@ -1035,6 +1214,10 @@ else:
     )
 
 
+# =========================================================
+# CURRENT MC DISPLAY
+# =========================================================
+
 st.markdown(
     "#### Current MC Number"
 )
@@ -1059,10 +1242,7 @@ else:
 
 
 st.markdown(
-    f'<div class="current-number">'
-    f'{formatted_mc}'
-    f'</div>',
-    unsafe_allow_html=True,
+    f"# {formatted_mc}"
 )
 
 st.caption(
@@ -1100,6 +1280,7 @@ with col3:
         use_container_width=True,
     )
 
+
 st.markdown(
     "</div>",
     unsafe_allow_html=True,
@@ -1107,16 +1288,21 @@ st.markdown(
 
 
 # =========================================================
-# CLEAR
+# CLEAR HISTORY
 # =========================================================
 
 if clear_button:
 
     st.session_state.running = False
+
     st.session_state.start_mc = ""
+
     st.session_state.current_mc = None
+
     st.session_state.last_searched_mc = None
+
     st.session_state.results = []
+
     st.session_state.searched_count = 0
 
     log_action(
@@ -1141,8 +1327,7 @@ if stop_button:
         st.session_state.last_searched_mc = (
             int(
                 st.session_state.current_mc
-            )
-            - 1
+            ) - 1
         )
 
     st.session_state.running = False
@@ -1195,7 +1380,9 @@ if start_button:
         start_number
     )
 
-    st.session_state.last_searched_mc = None
+    st.session_state.last_searched_mc = (
+        None
+    )
 
     st.session_state.running = True
 
@@ -1204,7 +1391,9 @@ if start_button:
         mc_number=str(
             start_number
         ),
-        details="Sequential MC search started",
+        details=(
+            "Sequential MC search started"
+        ),
     )
 
     st.rerun()
@@ -1222,11 +1411,12 @@ if st.session_state.running:
 
     st.info(
         f"🟢 Searching MC {current:,}\n\n"
-        f"Delay: {search_delay:.1f}s"
+        "Searching sequential MC numbers automatically..."
     )
 
-
-elif st.session_state.searched_count > 0:
+elif (
+    st.session_state.searched_count > 0
+):
 
     st.success(
         "✓ Search stopped"
@@ -1286,16 +1476,18 @@ if st.session_state.running:
     # =====================================================
     # IMPORTANT
     #
-    # Uses user's database setting.
-    # Default = 0.5 seconds.
+    # This now uses the user's database setting.
+    #
+    # 0.0 = no artificial delay
+    # 0.5 = half second
+    # 1.0 = one second
     # =====================================================
 
-    time.sleep(
-        max(
-            0.0,
-            float(search_delay),
+    if search_delay > 0:
+
+        time.sleep(
+            search_delay
         )
-    )
 
     st.rerun()
 
@@ -1316,6 +1508,7 @@ if st.session_state.results:
     )
 
     rows = []
+
     errors = []
 
     for result in (
@@ -1328,30 +1521,37 @@ if st.session_state.results:
                     "MC Number",
                     "",
                 ),
+
                 "Owner": result.get(
                     "Owner",
                     "Not available",
                 ),
+
                 "Carrier/Broker Name": result.get(
                     "Carrier/Broker Name",
                     "",
                 ),
+
                 "Broker/Carrier": result.get(
                     "Broker/Carrier",
                     "",
                 ),
+
                 "Operating Status": result.get(
                     "Operating Status",
                     "",
                 ),
+
                 "Number": result.get(
                     "Number",
                     "Not available",
                 ),
+
                 "Email Address": result.get(
                     "Email Address",
                     "Not available",
                 ),
+
                 "Location": result.get(
                     "Location",
                     "Not available",
@@ -1401,6 +1601,7 @@ if st.session_state.results:
                 "ACTIVE",
                 "INACTIVE",
             ],
+            key="status_filter",
         )
 
     with filter_col2:
@@ -1412,6 +1613,7 @@ if st.session_state.results:
                 "CARRIER",
                 "BROKER",
             ],
+            key="type_filter",
         )
 
     filtered_df = df.copy()
@@ -1454,6 +1656,15 @@ if st.session_state.results:
             .astype(str)
             .str.upper()
             == "ACTIVE"
+        ).sum()
+    )
+
+    inactive_count = int(
+        (
+            df["Operating Status"]
+            .astype(str)
+            .str.upper()
+            == "INACTIVE"
         ).sum()
     )
 
@@ -1501,12 +1712,14 @@ if st.session_state.results:
 
 
     # =====================================================
-    # TABLE
+    # COLORS
     # =====================================================
 
     def color_status(value):
 
-        value = str(value).upper()
+        value = str(
+            value
+        ).upper()
 
         if value == "ACTIVE":
 
@@ -1527,7 +1740,9 @@ if st.session_state.results:
 
     def color_type(value):
 
-        value = str(value).upper()
+        value = str(
+            value
+        ).upper()
 
         if value == "BROKER":
 
@@ -1640,7 +1855,7 @@ if st.session_state.results:
 
 
     # =====================================================
-    # ERRORS
+    # SEARCH ERRORS
     # =====================================================
 
     if errors:
