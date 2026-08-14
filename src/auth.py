@@ -7,14 +7,6 @@ import time
 
 import streamlit as st
 
-from src.database import (
-    clear_user_session,
-    create_user_session,
-    get_user,
-    get_user_session,
-    validate_user_session,
-)
-
 
 # =========================================================
 # SECURITY SETTINGS
@@ -37,6 +29,9 @@ def init_auth_state():
         "session_token": "",
         "login_attempts": 0,
         "login_locked_until": 0.0,
+
+        # Admin sessions do not require a users-table row.
+        "database_session": False,
     }
 
     for key, value in defaults.items():
@@ -46,58 +41,71 @@ def init_auth_state():
 
 
 # =========================================================
-# PASSWORD
+# PASSWORD HASH
 # =========================================================
 
 def hash_password(password: str) -> str:
 
     return hashlib.sha256(
-        password.encode("utf-8")
+        str(password).encode("utf-8")
     ).hexdigest()
 
 
 # =========================================================
-# ADMIN CREDENTIALS
+# ADMIN SECRETS
 # =========================================================
 
 def get_admin_username() -> str:
 
     try:
+
         return str(
             st.secrets.get(
                 "ADMIN_USERNAME",
                 "",
             )
         ).strip()
+
     except Exception:
+
         return ""
 
 
 def get_admin_password_hash() -> str:
 
     try:
+
         return str(
             st.secrets.get(
                 "ADMIN_PASSWORD_HASH",
                 "",
             )
         ).strip()
+
     except Exception:
+
         return ""
 
 
 def get_admin_password() -> str:
 
     try:
+
         return str(
             st.secrets.get(
                 "ADMIN_PASSWORD",
                 "",
             )
         )
+
     except Exception:
+
         return ""
 
+
+# =========================================================
+# ADMIN LOGIN
+# =========================================================
 
 def check_admin_credentials(
     username: str,
@@ -109,18 +117,21 @@ def check_admin_credentials(
     )
 
     if not configured_username:
+
         return False
 
     if not hmac.compare_digest(
-        username.strip(),
+        str(username).strip(),
         configured_username,
     ):
+
         return False
 
     stored_hash = (
         get_admin_password_hash()
     )
 
+    # SHA-256 hash
     if stored_hash:
 
         supplied_hash = hash_password(
@@ -131,8 +142,22 @@ def check_admin_credentials(
             supplied_hash.lower(),
             stored_hash.lower(),
         ):
+
             return True
 
+        # Compatibility with an old deployment
+        # where ADMIN_PASSWORD_HASH contained
+        # the actual password.
+        if len(stored_hash) != 64:
+
+            if hmac.compare_digest(
+                password,
+                stored_hash,
+            ):
+
+                return True
+
+    # Plain password secret
     stored_password = (
         get_admin_password()
     )
@@ -143,6 +168,7 @@ def check_admin_credentials(
             password,
             stored_password,
         ):
+
             return True
 
     return False
@@ -154,27 +180,33 @@ def check_admin_credentials(
 
 def is_locked() -> bool:
 
-    return time.time() < float(
-        st.session_state.get(
-            "login_locked_until",
-            0.0,
+    return (
+        time.time()
+        <
+        float(
+            st.session_state.get(
+                "login_locked_until",
+                0.0,
+            )
         )
     )
 
 
 def seconds_remaining() -> int:
 
+    remaining = (
+        float(
+            st.session_state.get(
+                "login_locked_until",
+                0.0,
+            )
+        )
+        - time.time()
+    )
+
     return max(
         0,
-        int(
-            float(
-                st.session_state.get(
-                    "login_locked_until",
-                    0.0,
-                )
-            )
-            - time.time()
-        ),
+        int(remaining),
     )
 
 
@@ -198,7 +230,64 @@ def failed_login():
 
     else:
 
-        st.session_state.login_attempts = attempts
+        st.session_state.login_attempts = (
+            attempts
+        )
+
+
+# =========================================================
+# DATABASE HELPERS
+#
+# IMPORTANT:
+# These imports are intentionally inside functions.
+# This prevents an import-time crash from hiding
+# the entire login page.
+# =========================================================
+
+def _database_get_user(username: str):
+
+    from src.database import get_user
+
+    return get_user(username)
+
+
+def _database_create_session(
+    username: str,
+    token: str,
+):
+
+    from src.database import create_user_session
+
+    return create_user_session(
+        username,
+        token,
+    )
+
+
+def _database_validate_session(
+    username: str,
+    token: str,
+):
+
+    from src.database import validate_user_session
+
+    return validate_user_session(
+        username,
+        token,
+    )
+
+
+def _database_clear_session(
+    username: str,
+    token: str,
+):
+
+    from src.database import clear_user_session
+
+    return clear_user_session(
+        username,
+        token,
+    )
 
 
 # =========================================================
@@ -212,17 +301,21 @@ def _check_database_user(
 
     try:
 
-        record = get_user(
+        record = _database_get_user(
             username
         )
 
-    except Exception:
+    except Exception as exc:
 
-        return None, "database_error"
+        return None, "database_error", exc
 
     if not record:
 
-        return None, "invalid"
+        return None, "invalid", None
+
+    # -----------------------------------------------------
+    # Active check
+    # -----------------------------------------------------
 
     if not bool(
         record.get(
@@ -231,7 +324,7 @@ def _check_database_user(
         )
     ):
 
-        return None, "inactive"
+        return None, "inactive", None
 
     stored_hash = str(
         record.get(
@@ -242,7 +335,7 @@ def _check_database_user(
 
     if not stored_hash:
 
-        return None, "invalid"
+        return None, "invalid", None
 
     supplied_hash = hash_password(
         password
@@ -253,9 +346,9 @@ def _check_database_user(
         stored_hash.lower(),
     ):
 
-        return record, "ok"
+        return record, "ok", None
 
-    return None, "invalid"
+    return None, "invalid", None
 
 
 # =========================================================
@@ -265,23 +358,25 @@ def _check_database_user(
 def login_user(
     username: str,
     password: str,
-) -> bool:
+) -> tuple[bool, str]:
 
     init_auth_state()
 
     if is_locked():
-        return False
+
+        return False, "locked"
 
     username = str(username).strip()
 
     if not username or not password:
 
         failed_login()
-        return False
 
-    # -----------------------------------------------------
+        return False, "invalid"
+
+    # =====================================================
     # ADMIN
-    # -----------------------------------------------------
+    # =====================================================
 
     if check_admin_credentials(
         username,
@@ -290,58 +385,50 @@ def login_user(
 
         token = secrets.token_urlsafe(32)
 
-        # Admin should preferably also exist in users.
-        # If it does, the same single-session protection
-        # is applied.
-        try:
-
-            admin_record = get_user(
-                username
-            )
-
-            if admin_record:
-
-                create_user_session(
-                    username,
-                    token,
-                )
-
-        except Exception:
-            pass
-
+        # Admin is a local Streamlit-secret account.
+        # It does NOT depend on a users-table row.
         st.session_state.authenticated = True
 
-        st.session_state.username = (
-            username
-        )
+        st.session_state.username = username
 
         st.session_state.role = "admin"
 
-        st.session_state.session_token = (
-            token
-        )
+        st.session_state.session_token = token
+
+        st.session_state.database_session = False
 
         st.session_state.login_attempts = 0
 
         st.session_state.login_locked_until = 0.0
 
-        return True
+        return True, "ok"
 
-    # -----------------------------------------------------
+    # =====================================================
     # STANDARD USER
-    # -----------------------------------------------------
+    # =====================================================
 
-    record, status = (
+    record, status, error = (
         _check_database_user(
             username,
             password,
         )
     )
 
+    if status == "database_error":
+
+        return False, "database_error"
+
+    if status == "inactive":
+
+        failed_login()
+
+        return False, "inactive"
+
     if status != "ok" or not record:
 
         failed_login()
-        return False
+
+        return False, "invalid"
 
     role = str(
         record.get(
@@ -362,46 +449,44 @@ def login_user(
         role = "standard_user"
 
     # -----------------------------------------------------
-    # CREATE DATABASE SESSION
+    # Create a database session.
     #
-    # This automatically invalidates an existing tab
-    # for the same username.
+    # The database stores only ONE token for the user.
+    # Logging in from another browser/tab replaces it.
     # -----------------------------------------------------
 
     token = secrets.token_urlsafe(32)
 
     try:
 
-        create_user_session(
+        _database_create_session(
             username,
             token,
         )
 
     except Exception:
 
-        return False
+        return False, "database_error"
 
     st.session_state.authenticated = True
 
-    st.session_state.username = (
-        username
-    )
+    st.session_state.username = username
 
     st.session_state.role = role
 
-    st.session_state.session_token = (
-        token
-    )
+    st.session_state.session_token = token
+
+    st.session_state.database_session = True
 
     st.session_state.login_attempts = 0
 
     st.session_state.login_locked_until = 0.0
 
-    return True
+    return True, "ok"
 
 
 # =========================================================
-# SESSION VALIDATION
+# CURRENT SESSION VALIDATION
 # =========================================================
 
 def validate_current_session():
@@ -415,23 +500,74 @@ def validate_current_session():
 
         return False, "not_authenticated"
 
-    username = st.session_state.get(
-        "username",
-        "",
+    username = str(
+        st.session_state.get(
+            "username",
+            "",
+        )
     )
 
-    token = st.session_state.get(
-        "session_token",
-        "",
+    token = str(
+        st.session_state.get(
+            "session_token",
+            "",
+        )
     )
 
     if not username or not token:
 
         return False, "missing_session"
 
+    # -----------------------------------------------------
+    # Admin sessions are controlled by Streamlit session
+    # state and secrets, not the users table.
+    # -----------------------------------------------------
+
+    if not bool(
+        st.session_state.get(
+            "database_session",
+            False,
+        )
+    ):
+
+        if (
+            st.session_state.get(
+                "role",
+                "",
+            )
+            == "admin"
+            and check_admin_credentials(
+                username,
+                # We cannot recover the password from
+                # session state, so simply keep the admin
+                # session alive for this browser session.
+                "",
+            )
+        ):
+
+            return True, "ok"
+
+        # Configured admin is still considered valid
+        # for this Streamlit session.
+        if (
+            st.session_state.get(
+                "role",
+                "",
+            )
+            == "admin"
+        ):
+
+            return True, "ok"
+
+        return False, "missing_session"
+
+    # -----------------------------------------------------
+    # Database-backed standard user session
+    # -----------------------------------------------------
+
     try:
 
-        return validate_user_session(
+        return _database_validate_session(
             username,
             token,
         )
@@ -456,19 +592,25 @@ def is_authenticated() -> bool:
 
         return False
 
-    valid, _ = (
+    valid, reason = (
         validate_current_session()
     )
 
-    if not valid:
+    if valid:
 
-        logout_user(
-            clear_database=False
-        )
+        return True
 
-        return False
+    # A database error should not silently destroy
+    # the user's local session.
+    if reason == "database_error":
 
-    return True
+        return True
+
+    logout_user(
+        clear_database=False
+    )
+
+    return False
 
 
 # =========================================================
@@ -497,34 +639,57 @@ def logout_user(
     clear_database: bool = True,
 ):
 
-    username = st.session_state.get(
-        "username",
-        "",
+    username = str(
+        st.session_state.get(
+            "username",
+            "",
+        )
     )
 
-    token = st.session_state.get(
-        "session_token",
-        "",
+    token = str(
+        st.session_state.get(
+            "session_token",
+            "",
+        )
     )
 
-    if clear_database and username and token:
+    database_session = bool(
+        st.session_state.get(
+            "database_session",
+            False,
+        )
+    )
+
+    if (
+        clear_database
+        and database_session
+        and username
+        and token
+    ):
 
         try:
 
-            clear_user_session(
+            _database_clear_session(
                 username,
                 token,
             )
 
         except Exception:
+
             pass
 
     st.session_state.authenticated = False
+
     st.session_state.username = ""
+
     st.session_state.role = ""
+
     st.session_state.session_token = ""
 
+    st.session_state.database_session = False
+
     st.session_state.login_attempts = 0
+
     st.session_state.login_locked_until = 0.0
 
 
@@ -537,28 +702,33 @@ def require_login() -> bool:
     init_auth_state()
 
     if is_authenticated():
+
         return True
+
+    # =====================================================
+    # LOGIN CSS
+    # =====================================================
 
     st.markdown(
         """
-        <style>
+<style>
 
-        .login-title {
-            text-align:center;
-            font-size:2.6rem;
-            font-weight:800;
-            margin-top:8vh;
-            color:white;
-        }
+.login-title {
+    text-align: center;
+    font-size: 2.6rem;
+    font-weight: 850;
+    margin-top: 8vh;
+    color: white;
+}
 
-        .login-subtitle {
-            text-align:center;
-            color:#9da6c0;
-            margin-bottom:25px;
-        }
+.login-subtitle {
+    text-align: center;
+    color: #9da6c0;
+    margin-bottom: 25px;
+}
 
-        </style>
-        """,
+</style>
+""",
         unsafe_allow_html=True,
     )
 
@@ -569,7 +739,9 @@ def require_login() -> bool:
     with center:
 
         st.markdown(
-            '<div class="login-title">✦ MC Search</div>',
+            '<div class="login-title">'
+            '✦ MC Search'
+            '</div>',
             unsafe_allow_html=True,
         )
 
@@ -579,6 +751,10 @@ def require_login() -> bool:
             '</div>',
             unsafe_allow_html=True,
         )
+
+        # -------------------------------------------------
+        # LOCKOUT
+        # -------------------------------------------------
 
         if is_locked():
 
@@ -592,6 +768,10 @@ def require_login() -> bool:
             )
 
             st.stop()
+
+        # -------------------------------------------------
+        # LOGIN FORM
+        # -------------------------------------------------
 
         with st.form(
             "mc_login_form",
@@ -609,31 +789,64 @@ def require_login() -> bool:
                 placeholder="Enter password",
             )
 
-            submitted = st.form_submit_button(
-                "🔐 Sign In",
-                type="primary",
-                use_container_width=True,
+            submitted = (
+                st.form_submit_button(
+                    "🔐 Sign In",
+                    type="primary",
+                    use_container_width=True,
+                )
             )
+
+        # -------------------------------------------------
+        # SUBMIT
+        # -------------------------------------------------
 
         if submitted:
 
-            if login_user(
+            success, status = login_user(
                 username,
                 password,
-            ):
+            )
+
+            if success:
+
+                st.success(
+                    "✓ Authentication successful."
+                )
+
+                time.sleep(0.25)
 
                 st.rerun()
 
+            elif status == "locked":
+
+                st.error(
+                    "🔒 Too many failed attempts. "
+                    "Login temporarily locked."
+                )
+
+            elif status == "inactive":
+
+                st.error(
+                    "This account is inactive. "
+                    "Contact an administrator."
+                )
+
+            elif status == "database_error":
+
+                st.error(
+                    "Unable to access the user database. "
+                    "Please check your Supabase configuration "
+                    "and database.py."
+                )
+
             else:
 
-                if is_locked():
+                st.error(
+                    "Invalid username or password."
+                )
 
-                    st.error(
-                        "🔒 Too many failed attempts. "
-                        "Login temporarily locked."
-                    )
-
-                else:
+                if not is_locked():
 
                     remaining = (
                         MAX_LOGIN_ATTEMPTS
@@ -643,10 +856,6 @@ def require_login() -> bool:
                                 0,
                             )
                         )
-                    )
-
-                    st.error(
-                        "Invalid username or password."
                     )
 
                     if remaining > 0:
