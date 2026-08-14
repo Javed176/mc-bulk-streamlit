@@ -9,10 +9,14 @@ import streamlit as st
 from src.search import search_one
 
 from src.auth import (
-    require_login,
+    init_auth_state,
+    login_user,
     logout_user,
     is_admin,
     is_authenticated,
+    is_locked,
+    seconds_remaining,
+    MAX_LOGIN_ATTEMPTS,
 )
 
 from src.database import (
@@ -23,6 +27,7 @@ from src.database import (
     update_user_settings,
     list_users,
     set_user_active,
+    create_access_request,
 )
 
 from src.audit import (
@@ -45,46 +50,10 @@ st.set_page_config(
 
 
 # =========================================================
-# AUTH
+# AUTH STATE
 # =========================================================
 
-require_login()
-
-# The database-backed session is checked every rerun.
-# If another browser/tab logged in using the same account,
-# the previous session becomes invalid automatically.
-if not is_authenticated():
-
-    st.stop()
-
-
-# =========================================================
-# SEARCH SESSION STATE
-# =========================================================
-
-defaults = {
-
-    "running": False,
-
-    "start_mc": "",
-
-    "current_mc": None,
-
-    "last_searched_mc": None,
-
-    "results": [],
-
-    "searched_count": 0,
-
-    "active_page": "Search",
-
-}
-
-for key, value in defaults.items():
-
-    if key not in st.session_state:
-
-        st.session_state[key] = value
+init_auth_state()
 
 
 # =========================================================
@@ -313,10 +282,335 @@ input {
     margin-top:4px;
 }
 
+.login-title {
+
+    text-align:center;
+
+    font-size:2.8rem;
+
+    font-weight:800;
+
+    margin-top:5vh;
+
+    color:white;
+}
+
+.login-subtitle {
+
+    text-align:center;
+
+    color:#9da6c0;
+
+    margin-bottom:25px;
+}
+
+.request-note {
+
+    text-align:center;
+
+    color:#9da6c0;
+
+    font-size:.9rem;
+
+    margin-top:10px;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
 )
+
+
+# =========================================================
+# LOGIN / REQUEST ACCESS PAGE
+# =========================================================
+
+if not is_authenticated():
+
+    left, center, right = st.columns(
+        [1, 2, 1]
+    )
+
+    with center:
+
+        st.markdown(
+            '<div class="login-title">✦ MC Search</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            '<div class="login-subtitle">'
+            'Secure administrator / user access'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        login_tab, request_tab = st.tabs(
+            [
+                "🔐 Sign In",
+                "📱 Request Access",
+            ]
+        )
+
+        # =================================================
+        # LOGIN
+        # =================================================
+
+        with login_tab:
+
+            if is_locked():
+
+                st.error(
+                    "🔒 Too many failed login attempts."
+                )
+
+                st.warning(
+                    f"Try again in "
+                    f"{seconds_remaining()} seconds."
+                )
+
+                st.stop()
+
+            with st.form(
+                "mc_login_form",
+                clear_on_submit=False,
+            ):
+
+                username = st.text_input(
+                    "Username",
+                    placeholder="Enter username",
+                )
+
+                password = st.text_input(
+                    "Password",
+                    type="password",
+                    placeholder="Enter password",
+                )
+
+                submitted = st.form_submit_button(
+                    "🔐 Sign In",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if submitted:
+
+                if login_user(
+                    username,
+                    password,
+                ):
+
+                    st.rerun()
+
+                else:
+
+                    if is_locked():
+
+                        st.error(
+                            "🔒 Too many failed attempts. "
+                            "Login temporarily locked."
+                        )
+
+                    else:
+
+                        remaining = (
+                            MAX_LOGIN_ATTEMPTS
+                            - int(
+                                st.session_state.get(
+                                    "login_attempts",
+                                    0,
+                                )
+                            )
+                        )
+
+                        st.error(
+                            "Invalid username or password."
+                        )
+
+                        if remaining > 0:
+
+                            st.caption(
+                                f"{remaining} "
+                                f"attempt(s) remaining."
+                            )
+
+        # =================================================
+        # REQUEST ACCESS
+        # =================================================
+
+        with request_tab:
+
+            st.markdown(
+                "### 📱 Request Access"
+            )
+
+            st.write(
+                "Don't have a username and password?"
+            )
+
+            st.caption(
+                "Enter your WhatsApp number below. "
+                "The administrator will contact you "
+                "on WhatsApp and provide your login details."
+            )
+
+            with st.form(
+                "request_access_form",
+                clear_on_submit=True,
+            ):
+
+                whatsapp_number = st.text_input(
+                    "WhatsApp Number",
+                    placeholder="+1 234 567 8900",
+                )
+
+                request_submitted = (
+                    st.form_submit_button(
+                        "📱 Request Access",
+                        type="primary",
+                        use_container_width=True,
+                    )
+                )
+
+            if request_submitted:
+
+                whatsapp_clean = (
+                    str(whatsapp_number)
+                    .strip()
+                )
+
+                # -----------------------------------------
+                # BASIC VALIDATION
+                # -----------------------------------------
+
+                digits_only = "".join(
+                    ch
+                    for ch in whatsapp_clean
+                    if ch.isdigit()
+                )
+
+                if not whatsapp_clean:
+
+                    st.error(
+                        "Please enter your WhatsApp number."
+                    )
+
+                elif len(digits_only) < 7:
+
+                    st.error(
+                        "Please enter a valid WhatsApp number."
+                    )
+
+                elif len(digits_only) > 15:
+
+                    st.error(
+                        "Please enter a valid WhatsApp number."
+                    )
+
+                else:
+
+                    try:
+
+                        create_access_request(
+                            whatsapp_clean
+                        )
+
+                        st.success(
+                            "✓ Access request submitted!"
+                        )
+
+                        st.info(
+                            "The administrator will contact "
+                            "you on WhatsApp."
+                        )
+
+                        log_action(
+                            "ACCESS_REQUEST",
+                            details=(
+                                "New access request submitted"
+                            ),
+                        )
+
+                    except Exception as exc:
+
+                        error_text = str(
+                            exc
+                        )
+
+                        # ---------------------------------
+                        # FRIENDLY DUPLICATE MESSAGE
+                        # ---------------------------------
+
+                        if (
+                            "duplicate"
+                            in error_text.lower()
+                            or "unique"
+                            in error_text.lower()
+                        ):
+
+                            st.warning(
+                                "This WhatsApp number has "
+                                "already submitted an access "
+                                "request."
+                            )
+
+                        else:
+
+                            st.error(
+                                "Unable to submit the "
+                                "access request."
+                            )
+
+                            st.caption(
+                                error_text
+                            )
+
+            st.markdown(
+                '<div class="request-note">'
+                'Only your WhatsApp number is required.'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.stop()
+
+
+# =========================================================
+# AUTHENTICATED SESSION VALIDATION
+# =========================================================
+
+if not is_authenticated():
+
+    st.stop()
+
+
+# =========================================================
+# SEARCH SESSION STATE
+# =========================================================
+
+defaults = {
+
+    "running": False,
+
+    "start_mc": "",
+
+    "current_mc": None,
+
+    "last_searched_mc": None,
+
+    "results": [],
+
+    "searched_count": 0,
+
+    "active_page": "Search",
+
+}
+
+for key, value in defaults.items():
+
+    if key not in st.session_state:
+
+        st.session_state[key] = value
 
 
 # =========================================================
@@ -454,7 +748,6 @@ if (
         ]
     )
 
-
     # =====================================================
     # USERS
     # =====================================================
@@ -480,8 +773,6 @@ if (
                     users
                 )
 
-                # Don't expose session tokens in
-                # the visible admin table.
                 hidden_columns = [
                     "session_token",
                     "session_started_at",
@@ -517,7 +808,6 @@ if (
             "</div>",
             unsafe_allow_html=True,
         )
-
 
         # =================================================
         # CREATE USER
@@ -645,7 +935,6 @@ if (
             unsafe_allow_html=True,
         )
 
-
         # =================================================
         # USER ACTIONS
         # =================================================
@@ -717,7 +1006,7 @@ if (
                             "search_delay_seconds",
                             0.5,
                         )
-                        or 0.5
+                        or 0.0
                     )
 
                     current_timeout = int(
@@ -745,7 +1034,6 @@ if (
                         st.error(
                             f"Current status: {status_text}"
                         )
-
 
                     # -------------------------------------
                     # SEARCH SETTINGS
@@ -843,7 +1131,6 @@ if (
                             st.error(
                                 f"Unable to save settings: {exc}"
                             )
-
 
                     # -------------------------------------
                     # USER STATUS / PASSWORD
@@ -972,7 +1259,6 @@ if (
             unsafe_allow_html=True,
         )
 
-
     # =====================================================
     # SECURITY
     # =====================================================
@@ -1035,7 +1321,6 @@ if (
             "</div>",
             unsafe_allow_html=True,
         )
-
 
     # =====================================================
     # AUDIT
@@ -1115,7 +1400,11 @@ except Exception:
     current_user_record = None
 
 
-# Default delay for safety.
+# Default delay = 0.5 seconds.
+# IMPORTANT:
+# Do not use "or 0.5" here because that converts
+# a valid 0.0 setting back into 0.5.
+
 search_delay = 0.5
 
 if current_user_record:
@@ -1473,16 +1762,7 @@ if st.session_state.running:
         current_mc + 1
     )
 
-    # =====================================================
-    # IMPORTANT
-    #
-    # This now uses the user's database setting.
-    #
-    # 0.0 = no artificial delay
-    # 0.5 = half second
-    # 1.0 = one second
-    # =====================================================
-
+    # 0.0 means NO artificial delay.
     if search_delay > 0:
 
         time.sleep(
