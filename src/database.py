@@ -195,7 +195,6 @@ def update_user_settings(
 
     if search_delay_seconds is not None:
 
-        # ZERO IS VALID
         values["search_delay_seconds"] = max(
             0.0,
             float(search_delay_seconds),
@@ -236,8 +235,6 @@ def create_user_session(
         timezone.utc
     ).isoformat()
 
-    # Updating the existing session_token automatically
-    # invalidates the previous browser/tab session.
     response = (
         client.table("users")
         .update(
@@ -329,7 +326,6 @@ def validate_user_session(
         )
 
         if started.tzinfo is None:
-
             started = started.replace(
                 tzinfo=timezone.utc
             )
@@ -481,32 +477,226 @@ def get_audit_logs(
 
 
 # =========================================================
-# ACCESS REQUEST
+# ACCESS REQUESTS
 # =========================================================
+
+def normalize_whatsapp_number(
+    whatsapp_number: str,
+) -> str:
+
+    number = str(
+        whatsapp_number or ""
+    ).strip()
+
+    # Remove spaces, dashes, brackets and common
+    # formatting characters.
+    for char in [
+        " ",
+        "-",
+        "(",
+        ")",
+        ".",
+    ]:
+        number = number.replace(
+            char,
+            "",
+        )
+
+    return number
+
+
+def get_access_request(
+    whatsapp_number: str,
+):
+
+    number = normalize_whatsapp_number(
+        whatsapp_number
+    )
+
+    if not number:
+        return None
+
+    client = get_supabase()
+
+    response = (
+        client.table("access_requests")
+        .select("*")
+        .eq(
+            "whatsapp_number",
+            number,
+        )
+        .limit(1)
+        .execute()
+    )
+
+    if not response.data:
+        return None
+
+    return response.data[0]
+
 
 def create_access_request(
     whatsapp_number: str,
 ):
 
-    number = str(
+    number = normalize_whatsapp_number(
         whatsapp_number
-    ).strip()
+    )
 
     if not number:
         raise ValueError(
             "WhatsApp number is required."
         )
 
-    # Keep the request limited to the phone number.
-    # No username or password is requested.
-    return insert_audit(
-        username="ACCESS_REQUEST",
-        action="ACCESS_REQUEST",
-        mc_number="",
-        details=(
-            f"WhatsApp: {number}"
-        ),
+    existing = get_access_request(
+        number
     )
+
+    # -----------------------------------------------------
+    # EXISTING REQUEST
+    # -----------------------------------------------------
+
+    if existing:
+
+        return {
+            "created": False,
+            "duplicate": True,
+            "request": existing,
+        }
+
+    # -----------------------------------------------------
+    # NEW REQUEST
+    # -----------------------------------------------------
+
+    client = get_supabase()
+
+    try:
+
+        response = (
+            client.table("access_requests")
+            .insert(
+                {
+                    "whatsapp_number": number,
+                    "status": "waiting",
+                }
+            )
+            .execute()
+        )
+
+    except Exception as exc:
+
+        # In case two browser requests arrive at exactly
+        # the same time, the database UNIQUE constraint
+        # prevents a duplicate.
+        existing = get_access_request(
+            number
+        )
+
+        if existing:
+
+            return {
+                "created": False,
+                "duplicate": True,
+                "request": existing,
+            }
+
+        raise exc
+
+    request = (
+        response.data[0]
+        if response.data
+        else get_access_request(number)
+    )
+
+    return {
+        "created": True,
+        "duplicate": False,
+        "request": request,
+    }
+
+
+def list_access_requests(
+    status: str | None = None,
+):
+
+    client = get_supabase()
+
+    query = (
+        client.table("access_requests")
+        .select("*")
+        .order(
+            "requested_at",
+            desc=True,
+        )
+    )
+
+    if status:
+        query = query.eq(
+            "status",
+            status,
+        )
+
+    response = query.execute()
+
+    return response.data or []
+
+
+def update_access_request_status(
+    request_id: str,
+    status: str,
+):
+
+    status = str(
+        status
+    ).strip().lower()
+
+    if status not in {
+        "waiting",
+        "approved",
+        "rejected",
+    }:
+
+        raise ValueError(
+            "Invalid access request status."
+        )
+
+    client = get_supabase()
+
+    return (
+        client.table("access_requests")
+        .update(
+            {
+                "status": status,
+                "updated_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
+            }
+        )
+        .eq(
+            "id",
+            request_id,
+        )
+        .execute()
+    )
+
+
+def get_access_request_status(
+    whatsapp_number: str,
+):
+
+    request = get_access_request(
+        whatsapp_number
+    )
+
+    if not request:
+        return None
+
+    return str(
+        request.get(
+            "status",
+            "waiting",
+        )
+    ).lower()
 
 
 # =========================================================
