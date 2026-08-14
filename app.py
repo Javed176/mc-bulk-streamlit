@@ -1,4 +1,13 @@
+from __future__ import annotations
+
+import io
+import time
+
+import pandas as pd
+import streamlit as st
+
 from src.search import search_one
+
 from src.auth import (
     init_auth_state,
     login_user,
@@ -8,10 +17,10 @@ from src.auth import (
     is_locked,
     seconds_remaining,
     MAX_LOGIN_ATTEMPTS,
+    hash_password,
 )
 
 from src.database import (
-    get_user,
     get_user_session,
     create_user_record,
     update_user,
@@ -56,26 +65,22 @@ st.markdown(
 <style>
 
 .stApp {
-
     background:
         radial-gradient(
             circle at 10% 10%,
             rgba(80,110,255,.18),
             transparent 30%
         ),
-
         radial-gradient(
             circle at 90% 10%,
             rgba(180,70,255,.16),
             transparent 30%
         ),
-
         radial-gradient(
             circle at 50% 100%,
             rgba(40,120,255,.10),
             transparent 35%
         ),
-
         linear-gradient(
             135deg,
             #05060a,
@@ -87,16 +92,12 @@ st.markdown(
 }
 
 .block-container {
-
     max-width:1450px;
-
     padding-top:2rem;
-
     padding-bottom:4rem;
 }
 
 .glass-card {
-
     background:
         linear-gradient(
             135deg,
@@ -127,11 +128,8 @@ st.markdown(
 }
 
 .hero-title {
-
     font-size:3rem;
-
     font-weight:800;
-
     letter-spacing:-.05em;
 
     background:
@@ -143,22 +141,18 @@ st.markdown(
         );
 
     -webkit-background-clip:text;
-
     -webkit-text-fill-color:transparent;
 }
 
 .hero-subtitle {
-
     color:
         rgba(235,240,255,.62);
 
     font-size:1rem;
-
     margin-top:6px;
 }
 
 div[data-baseweb="input"] {
-
     background:
         rgba(255,255,255,.065)
         !important;
@@ -173,7 +167,6 @@ div[data-baseweb="input"] {
 }
 
 div[data-baseweb="input"]:focus-within {
-
     border-color:
         rgba(120,145,255,.85)
         !important;
@@ -187,12 +180,10 @@ div[data-baseweb="input"]:focus-within {
 }
 
 input {
-
     color:white !important;
 }
 
 .stButton > button {
-
     min-height:50px;
 
     border-radius:
@@ -220,7 +211,6 @@ input {
 }
 
 .stButton > button:hover {
-
     transform:
         translateY(-2px)
         scale(1.015);
@@ -230,79 +220,33 @@ input {
         rgba(75,95,255,.28);
 }
 
-.current-mc-card {
-
-    text-align:center;
-
-    padding:25px 20px;
-
-    margin-top:20px;
-
-    border-radius:24px;
-
-    background:
-        linear-gradient(
-            135deg,
-            rgba(90,110,255,.13),
-            rgba(160,70,255,.08)
-        );
-
-    border:
-        1px solid
-        rgba(130,150,255,.18);
-}
-
 .admin-header {
-
     font-size:2rem;
-
     font-weight:800;
 }
 
 .admin-small {
-
     color:#9da6c0;
-}
-
-.delay-info {
-
-    color:#9da6c0;
-
-    font-size:.9rem;
-
-    margin-top:4px;
 }
 
 .login-title {
-
     text-align:center;
-
     font-size:2.8rem;
-
     font-weight:800;
-
     margin-top:5vh;
-
     color:white;
 }
 
 .login-subtitle {
-
     text-align:center;
-
     color:#9da6c0;
-
     margin-bottom:25px;
 }
 
 .request-note {
-
     text-align:center;
-
     color:#9da6c0;
-
     font-size:.9rem;
-
     margin-top:10px;
 }
 
@@ -313,7 +257,7 @@ input {
 
 
 # =========================================================
-# LOGIN / REQUEST ACCESS PAGE
+# LOGIN / REQUEST ACCESS
 # =========================================================
 
 if not is_authenticated():
@@ -360,70 +304,70 @@ if not is_authenticated():
                     f"{seconds_remaining()} seconds."
                 )
 
-                st.stop()
+            else:
 
-            with st.form(
-                "mc_login_form",
-                clear_on_submit=False,
-            ):
-
-                username = st.text_input(
-                    "Username",
-                    placeholder="Enter username",
-                )
-
-                password = st.text_input(
-                    "Password",
-                    type="password",
-                    placeholder="Enter password",
-                )
-
-                submitted = st.form_submit_button(
-                    "🔐 Sign In",
-                    type="primary",
-                    use_container_width=True,
-                )
-
-            if submitted:
-
-                if login_user(
-                    username,
-                    password,
+                with st.form(
+                    "mc_login_form",
+                    clear_on_submit=False,
                 ):
 
-                    st.rerun()
+                    username = st.text_input(
+                        "Username",
+                        placeholder="Enter username",
+                    )
 
-                else:
+                    password = st.text_input(
+                        "Password",
+                        type="password",
+                        placeholder="Enter password",
+                    )
 
-                    if is_locked():
+                    submitted = st.form_submit_button(
+                        "🔐 Sign In",
+                        type="primary",
+                        use_container_width=True,
+                    )
 
-                        st.error(
-                            "🔒 Too many failed attempts. "
-                            "Login temporarily locked."
-                        )
+                if submitted:
+
+                    if login_user(
+                        username,
+                        password,
+                    ):
+
+                        st.rerun()
 
                     else:
 
-                        remaining = (
-                            MAX_LOGIN_ATTEMPTS
-                            - int(
-                                st.session_state.get(
-                                    "login_attempts",
-                                    0,
+                        if is_locked():
+
+                            st.error(
+                                "🔒 Too many failed attempts. "
+                                "Login temporarily locked."
+                            )
+
+                        else:
+
+                            remaining = (
+                                MAX_LOGIN_ATTEMPTS
+                                - int(
+                                    st.session_state.get(
+                                        "login_attempts",
+                                        0,
+                                    )
                                 )
                             )
-                        )
 
-                        st.error(
-                            "Invalid username or password."
-                        )
-
-                        if remaining > 0:
-
-                            st.caption(
-                                f"{remaining} "
-                                f"attempt(s) remaining."
+                            st.error(
+                                "Invalid username or password."
                             )
+
+                            if remaining > 0:
+
+                                st.caption(
+                                    f"{remaining} "
+                                    f"attempt(s) remaining."
+                                )
 
         # =================================================
         # REQUEST ACCESS
@@ -465,14 +409,9 @@ if not is_authenticated():
 
             if request_submitted:
 
-                whatsapp_clean = (
-                    str(whatsapp_number)
-                    .strip()
-                )
-
-                # -----------------------------------------
-                # BASIC VALIDATION
-                # -----------------------------------------
+                whatsapp_clean = str(
+                    whatsapp_number
+                ).strip()
 
                 digits_only = "".join(
                     ch
@@ -502,59 +441,77 @@ if not is_authenticated():
 
                     try:
 
-                        create_access_request(
-                            whatsapp_clean
+                        request_result = (
+                            create_access_request(
+                                whatsapp_clean
+                            )
                         )
 
-                        st.success(
-                            "✓ Access request submitted!"
-                        )
-
-                        st.info(
-                            "The administrator will contact "
-                            "you on WhatsApp."
-                        )
-
-                        log_action(
-                            "ACCESS_REQUEST",
-                            details=(
-                                "New access request submitted"
-                            ),
-                        )
-
-                    except Exception as exc:
-
-                        error_text = str(
-                            exc
-                        )
-
-                        # ---------------------------------
-                        # FRIENDLY DUPLICATE MESSAGE
-                        # ---------------------------------
+                        status = str(
+                            request_result.get(
+                                "status",
+                                "",
+                            )
+                        ).lower()
 
                         if (
-                            "duplicate"
-                            in error_text.lower()
-                            or "unique"
-                            in error_text.lower()
+                            request_result.get(
+                                "success"
+                            )
                         ):
 
+                            st.success(
+                                "✓ Access request submitted!"
+                            )
+
+                            st.info(
+                                "The administrator will "
+                                "contact you on WhatsApp."
+                            )
+
+                            log_action(
+                                "ACCESS_REQUEST",
+                                details=(
+                                    "New access request "
+                                    "submitted"
+                                ),
+                            )
+
+                        elif status == "waiting":
+
                             st.warning(
+                                "This WhatsApp number "
+                                "already has a request "
+                                "waiting for review."
+                            )
+
+                        elif status == "approved":
+
+                            st.info(
                                 "This WhatsApp number has "
-                                "already submitted an access "
-                                "request."
+                                "already been approved. "
+                                "Please contact the administrator."
                             )
 
                         else:
 
-                            st.error(
-                                "Unable to submit the "
-                                "access request."
+                            st.warning(
+                                request_result.get(
+                                    "message",
+                                    "Unable to submit request.",
+                                )
                             )
 
-                            st.caption(
-                                error_text
-                            )
+                    except Exception as exc:
+
+                        st.error(
+                            "Unable to submit the "
+                            "access request."
+                        )
+
+                        st.caption(
+                            str(exc)
+                        )
 
             st.markdown(
                 '<div class="request-note">'
@@ -571,7 +528,6 @@ if not is_authenticated():
 # =========================================================
 
 if not is_authenticated():
-
     st.stop()
 
 
@@ -580,27 +536,18 @@ if not is_authenticated():
 # =========================================================
 
 defaults = {
-
     "running": False,
-
     "start_mc": "",
-
     "current_mc": None,
-
     "last_searched_mc": None,
-
     "results": [],
-
     "searched_count": 0,
-
     "active_page": "Search",
-
 }
 
 for key, value in defaults.items():
 
     if key not in st.session_state:
-
         st.session_state[key] = value
 
 
@@ -680,21 +627,15 @@ if is_admin():
 
     if search_page:
 
-        st.session_state.active_page = (
-            "Search"
-        )
+        st.session_state.active_page = "Search"
 
     if admin_page:
 
-        st.session_state.active_page = (
-            "Admin"
-        )
+        st.session_state.active_page = "Admin"
 
 else:
 
-    st.session_state.active_page = (
-        "Search"
-    )
+    st.session_state.active_page = "Search"
 
 
 # =========================================================
@@ -702,8 +643,7 @@ else:
 # =========================================================
 
 if (
-    st.session_state.active_page
-    == "Admin"
+    st.session_state.active_page == "Admin"
     and is_admin()
 ):
 
@@ -866,9 +806,7 @@ if (
 
                 try:
 
-                    existing_users = (
-                        list_users()
-                    )
+                    existing_users = list_users()
 
                     exists = any(
                         str(
@@ -888,8 +826,6 @@ if (
                         )
 
                     else:
-
-                        from src.auth import hash_password
 
                         create_user_record(
                             username_clean,
@@ -1026,10 +962,6 @@ if (
                             f"Current status: {status_text}"
                         )
 
-                    # -------------------------------------
-                    # SEARCH SETTINGS
-                    # -------------------------------------
-
                     st.markdown(
                         "#### ⚡ Search & Session Settings"
                     )
@@ -1052,10 +984,6 @@ if (
                             key=(
                                 "delay_"
                                 + selected_user
-                            ),
-                            help=(
-                                "0 = no artificial delay. "
-                                "Default for new users is 0.5 seconds."
                             ),
                         )
 
@@ -1123,10 +1051,6 @@ if (
                                 f"Unable to save settings: {exc}"
                             )
 
-                    # -------------------------------------
-                    # USER STATUS / PASSWORD
-                    # -------------------------------------
-
                     action_col1, action_col2 = (
                         st.columns(2)
                     )
@@ -1176,12 +1100,10 @@ if (
 
                     with action_col2:
 
-                        reset_password = (
-                            st.text_input(
-                                "New password",
-                                type="password",
-                                key="admin_reset_password",
-                            )
+                        reset_password = st.text_input(
+                            "New password",
+                            type="password",
+                            key="admin_reset_password",
                         )
 
                         if st.button(
@@ -1202,8 +1124,6 @@ if (
                             else:
 
                                 try:
-
-                                    from src.auth import hash_password
 
                                     update_user(
                                         selected_user,
@@ -1391,11 +1311,6 @@ except Exception:
     current_user_record = None
 
 
-# Default delay = 0.5 seconds.
-# IMPORTANT:
-# Do not use "or 0.5" here because that converts
-# a valid 0.0 setting back into 0.5.
-
 search_delay = 0.5
 
 if current_user_record:
@@ -1481,17 +1396,13 @@ elif st.session_state.start_mc:
         st.session_state.start_mc
     )
 
-    display_hint = (
-        "Ready to search"
-    )
+    display_hint = "Ready to search"
 
 else:
 
     display_mc = "—"
 
-    display_hint = (
-        "Enter a starting MC"
-    )
+    display_hint = "Enter a starting MC"
 
 
 # =========================================================
@@ -1560,7 +1471,6 @@ with col3:
         use_container_width=True,
     )
 
-
 st.markdown(
     "</div>",
     unsafe_allow_html=True,
@@ -1574,15 +1484,10 @@ st.markdown(
 if clear_button:
 
     st.session_state.running = False
-
     st.session_state.start_mc = ""
-
     st.session_state.current_mc = None
-
     st.session_state.last_searched_mc = None
-
     st.session_state.results = []
-
     st.session_state.searched_count = 0
 
     log_action(
@@ -1607,11 +1512,11 @@ if stop_button:
         st.session_state.last_searched_mc = (
             int(
                 st.session_state.current_mc
-            ) - 1
+            )
+            - 1
         )
 
     st.session_state.running = False
-
     st.session_state.current_mc = None
 
     log_action(
@@ -1660,10 +1565,7 @@ if start_button:
         start_number
     )
 
-    st.session_state.last_searched_mc = (
-        None
-    )
-
+    st.session_state.last_searched_mc = None
     st.session_state.running = True
 
     log_action(
@@ -1671,9 +1573,7 @@ if start_button:
         mc_number=str(
             start_number
         ),
-        details=(
-            "Sequential MC search started"
-        ),
+        details="Sequential MC search started",
     )
 
     st.rerun()
@@ -1753,7 +1653,6 @@ if st.session_state.running:
         current_mc + 1
     )
 
-    # 0.0 means NO artificial delay.
     if search_delay > 0:
 
         time.sleep(
@@ -1779,12 +1678,9 @@ if st.session_state.results:
     )
 
     rows = []
-
     errors = []
 
-    for result in (
-        st.session_state.results
-    ):
+    for result in st.session_state.results:
 
         rows.append(
             {
@@ -1831,7 +1727,6 @@ if st.session_state.results:
         )
 
         if result.get("_error"):
-
             errors.append(
                 result["_error"]
             )
