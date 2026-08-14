@@ -21,6 +21,7 @@ from src.auth import (
 )
 
 from src.database import (
+    get_user,
     get_user_session,
     create_user_record,
     update_user,
@@ -28,6 +29,8 @@ from src.database import (
     list_users,
     set_user_active,
     create_access_request,
+    list_access_requests,
+    update_access_request_status,
 )
 
 from src.audit import (
@@ -65,22 +68,26 @@ st.markdown(
 <style>
 
 .stApp {
+
     background:
         radial-gradient(
             circle at 10% 10%,
             rgba(80,110,255,.18),
             transparent 30%
         ),
+
         radial-gradient(
             circle at 90% 10%,
             rgba(180,70,255,.16),
             transparent 30%
         ),
+
         radial-gradient(
             circle at 50% 100%,
             rgba(40,120,255,.10),
             transparent 35%
         ),
+
         linear-gradient(
             135deg,
             #05060a,
@@ -92,12 +99,16 @@ st.markdown(
 }
 
 .block-container {
+
     max-width:1450px;
+
     padding-top:2rem;
+
     padding-bottom:4rem;
 }
 
 .glass-card {
+
     background:
         linear-gradient(
             135deg,
@@ -128,8 +139,11 @@ st.markdown(
 }
 
 .hero-title {
+
     font-size:3rem;
+
     font-weight:800;
+
     letter-spacing:-.05em;
 
     background:
@@ -141,18 +155,22 @@ st.markdown(
         );
 
     -webkit-background-clip:text;
+
     -webkit-text-fill-color:transparent;
 }
 
 .hero-subtitle {
+
     color:
         rgba(235,240,255,.62);
 
     font-size:1rem;
+
     margin-top:6px;
 }
 
 div[data-baseweb="input"] {
+
     background:
         rgba(255,255,255,.065)
         !important;
@@ -167,6 +185,7 @@ div[data-baseweb="input"] {
 }
 
 div[data-baseweb="input"]:focus-within {
+
     border-color:
         rgba(120,145,255,.85)
         !important;
@@ -180,10 +199,12 @@ div[data-baseweb="input"]:focus-within {
 }
 
 input {
+
     color:white !important;
 }
 
 .stButton > button {
+
     min-height:50px;
 
     border-radius:
@@ -211,6 +232,7 @@ input {
 }
 
 .stButton > button:hover {
+
     transform:
         translateY(-2px)
         scale(1.015);
@@ -220,34 +242,101 @@ input {
         rgba(75,95,255,.28);
 }
 
+.current-mc-card {
+
+    text-align:center;
+
+    padding:25px 20px;
+
+    margin-top:20px;
+
+    border-radius:24px;
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(90,110,255,.13),
+            rgba(160,70,255,.08)
+        );
+
+    border:
+        1px solid
+        rgba(130,150,255,.18);
+}
+
 .admin-header {
+
     font-size:2rem;
+
     font-weight:800;
 }
 
 .admin-small {
+
     color:#9da6c0;
 }
 
+.delay-info {
+
+    color:#9da6c0;
+
+    font-size:.9rem;
+
+    margin-top:4px;
+}
+
 .login-title {
+
     text-align:center;
+
     font-size:2.8rem;
+
     font-weight:800;
+
     margin-top:5vh;
+
     color:white;
 }
 
 .login-subtitle {
+
     text-align:center;
+
     color:#9da6c0;
+
     margin-bottom:25px;
 }
 
 .request-note {
+
     text-align:center;
+
     color:#9da6c0;
+
     font-size:.9rem;
+
     margin-top:10px;
+}
+
+.status-waiting {
+
+    color:#fbbf24;
+
+    font-weight:700;
+}
+
+.status-approved {
+
+    color:#39ff88;
+
+    font-weight:700;
+}
+
+.status-rejected {
+
+    color:#ff4d67;
+
+    font-weight:700;
 }
 
 </style>
@@ -257,7 +346,7 @@ input {
 
 
 # =========================================================
-# LOGIN / REQUEST ACCESS
+# LOGIN / REQUEST ACCESS PAGE
 # =========================================================
 
 if not is_authenticated():
@@ -304,70 +393,70 @@ if not is_authenticated():
                     f"{seconds_remaining()} seconds."
                 )
 
-            else:
+                st.stop()
 
-                with st.form(
-                    "mc_login_form",
-                    clear_on_submit=False,
+            with st.form(
+                "mc_login_form",
+                clear_on_submit=False,
+            ):
+
+                username = st.text_input(
+                    "Username",
+                    placeholder="Enter username",
+                )
+
+                password = st.text_input(
+                    "Password",
+                    type="password",
+                    placeholder="Enter password",
+                )
+
+                submitted = st.form_submit_button(
+                    "🔐 Sign In",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if submitted:
+
+                if login_user(
+                    username,
+                    password,
                 ):
 
-                    username = st.text_input(
-                        "Username",
-                        placeholder="Enter username",
-                    )
+                    st.rerun()
 
-                    password = st.text_input(
-                        "Password",
-                        type="password",
-                        placeholder="Enter password",
-                    )
+                else:
 
-                    submitted = st.form_submit_button(
-                        "🔐 Sign In",
-                        type="primary",
-                        use_container_width=True,
-                    )
+                    if is_locked():
 
-                if submitted:
-
-                    if login_user(
-                        username,
-                        password,
-                    ):
-
-                        st.rerun()
+                        st.error(
+                            "🔒 Too many failed attempts. "
+                            "Login temporarily locked."
+                        )
 
                     else:
 
-                        if is_locked():
-
-                            st.error(
-                                "🔒 Too many failed attempts. "
-                                "Login temporarily locked."
-                            )
-
-                        else:
-
-                            remaining = (
-                                MAX_LOGIN_ATTEMPTS
-                                - int(
-                                    st.session_state.get(
-                                        "login_attempts",
-                                        0,
-                                    )
+                        remaining = (
+                            MAX_LOGIN_ATTEMPTS
+                            - int(
+                                st.session_state.get(
+                                    "login_attempts",
+                                    0,
                                 )
                             )
+                        )
 
-                            st.error(
-                                "Invalid username or password."
+                        st.error(
+                            "Invalid username or password."
+                        )
+
+                        if remaining > 0:
+
+                            st.caption(
+                                f"{remaining} "
+                                f"attempt(s) remaining."
                             )
-
-                            if remaining > 0:
-
-                                st.caption(
-                                    f"{remaining} "
-                                    f"attempt(s) remaining."
-                                )
 
         # =================================================
         # REQUEST ACCESS
@@ -409,9 +498,10 @@ if not is_authenticated():
 
             if request_submitted:
 
-                whatsapp_clean = str(
-                    whatsapp_number
-                ).strip()
+                whatsapp_clean = (
+                    str(whatsapp_number)
+                    .strip()
+                )
 
                 digits_only = "".join(
                     ch
@@ -441,77 +531,89 @@ if not is_authenticated():
 
                     try:
 
-                        request_result = (
-                            create_access_request(
-                                whatsapp_clean
-                            )
+                        result = create_access_request(
+                            whatsapp_clean
                         )
 
-                        status = str(
-                            request_result.get(
-                                "status",
-                                "",
-                            )
-                        ).lower()
-
-                        if (
-                            request_result.get(
-                                "success"
-                            )
-                        ):
+                        if result.get("success"):
 
                             st.success(
                                 "✓ Access request submitted!"
                             )
 
                             st.info(
-                                "The administrator will "
-                                "contact you on WhatsApp."
+                                "The administrator will contact "
+                                "you on WhatsApp."
                             )
 
-                            log_action(
-                                "ACCESS_REQUEST",
-                                details=(
-                                    "New access request "
-                                    "submitted"
-                                ),
-                            )
-
-                        elif status == "waiting":
+                        elif result.get("status") == "waiting":
 
                             st.warning(
-                                "This WhatsApp number "
-                                "already has a request "
-                                "waiting for review."
+                                "⏳ Your access request is already "
+                                "waiting for administrator review."
                             )
 
-                        elif status == "approved":
+                        elif result.get("status") == "approved":
 
-                            st.info(
-                                "This WhatsApp number has "
-                                "already been approved. "
-                                "Please contact the administrator."
+                            st.success(
+                                "✓ Your access request has already "
+                                "been approved. Please contact the "
+                                "administrator on WhatsApp."
                             )
 
                         else:
 
-                            st.warning(
-                                request_result.get(
+                            st.info(
+                                result.get(
                                     "message",
-                                    "Unable to submit request.",
+                                    "Your request has been received.",
                                 )
                             )
 
+                        try:
+
+                            log_action(
+                                "ACCESS_REQUEST",
+                                details=(
+                                    "Access request submitted "
+                                    f"for WhatsApp number "
+                                    f"{whatsapp_clean}"
+                                ),
+                            )
+
+                        except Exception:
+
+                            pass
+
                     except Exception as exc:
 
-                        st.error(
-                            "Unable to submit the "
-                            "access request."
+                        error_text = str(
+                            exc
                         )
 
-                        st.caption(
-                            str(exc)
-                        )
+                        if (
+                            "duplicate"
+                            in error_text.lower()
+                            or "unique"
+                            in error_text.lower()
+                        ):
+
+                            st.warning(
+                                "This WhatsApp number has "
+                                "already submitted an access "
+                                "request."
+                            )
+
+                        else:
+
+                            st.error(
+                                "Unable to submit the "
+                                "access request."
+                            )
+
+                            st.caption(
+                                error_text
+                            )
 
             st.markdown(
                 '<div class="request-note">'
@@ -528,6 +630,7 @@ if not is_authenticated():
 # =========================================================
 
 if not is_authenticated():
+
     st.stop()
 
 
@@ -536,18 +639,27 @@ if not is_authenticated():
 # =========================================================
 
 defaults = {
+
     "running": False,
+
     "start_mc": "",
+
     "current_mc": None,
+
     "last_searched_mc": None,
+
     "results": [],
+
     "searched_count": 0,
+
     "active_page": "Search",
+
 }
 
 for key, value in defaults.items():
 
     if key not in st.session_state:
+
         st.session_state[key] = value
 
 
@@ -627,15 +739,21 @@ if is_admin():
 
     if search_page:
 
-        st.session_state.active_page = "Search"
+        st.session_state.active_page = (
+            "Search"
+        )
 
     if admin_page:
 
-        st.session_state.active_page = "Admin"
+        st.session_state.active_page = (
+            "Admin"
+        )
 
 else:
 
-    st.session_state.active_page = "Search"
+    st.session_state.active_page = (
+        "Search"
+    )
 
 
 # =========================================================
@@ -643,7 +761,8 @@ else:
 # =========================================================
 
 if (
-    st.session_state.active_page == "Admin"
+    st.session_state.active_page
+    == "Admin"
     and is_admin()
 ):
 
@@ -661,7 +780,8 @@ if (
 
     st.markdown(
         '<div class="admin-small">'
-        'Manage users, security, search delay and audit activity.'
+        'Manage users, access requests, security, '
+        'search delay and audit activity.'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -671,13 +791,15 @@ if (
         unsafe_allow_html=True,
     )
 
-    tab_users, tab_security, tab_audit = st.tabs(
+    tab_users, tab_requests, tab_security, tab_audit = st.tabs(
         [
             "👥 Users",
+            "📱 Access Requests",
             "🛡️ Security",
             "📋 Audit Log",
         ]
     )
+
 
     # =====================================================
     # USERS
@@ -739,6 +861,7 @@ if (
             "</div>",
             unsafe_allow_html=True,
         )
+
 
         # =================================================
         # CREATE USER
@@ -806,7 +929,9 @@ if (
 
                 try:
 
-                    existing_users = list_users()
+                    existing_users = (
+                        list_users()
+                    )
 
                     exists = any(
                         str(
@@ -861,6 +986,7 @@ if (
             "</div>",
             unsafe_allow_html=True,
         )
+
 
         # =================================================
         # USER ACTIONS
@@ -985,6 +1111,10 @@ if (
                                 "delay_"
                                 + selected_user
                             ),
+                            help=(
+                                "0 = no artificial delay. "
+                                "Default for new users is 0.5 seconds."
+                            ),
                         )
 
                     with settings_col2:
@@ -1100,10 +1230,12 @@ if (
 
                     with action_col2:
 
-                        reset_password = st.text_input(
-                            "New password",
-                            type="password",
-                            key="admin_reset_password",
+                        reset_password = (
+                            st.text_input(
+                                "New password",
+                                type="password",
+                                key="admin_reset_password",
+                            )
                         )
 
                         if st.button(
@@ -1170,6 +1302,336 @@ if (
             unsafe_allow_html=True,
         )
 
+
+    # =====================================================
+    # ACCESS REQUESTS
+    # =====================================================
+
+    with tab_requests:
+
+        st.markdown(
+            '<div class="glass-card">',
+            unsafe_allow_html=True,
+        )
+
+        st.subheader(
+            "📱 Access Requests"
+        )
+
+        st.caption(
+            "Review WhatsApp access requests submitted "
+            "from the login page."
+        )
+
+        request_filter = st.selectbox(
+            "Request Status",
+            [
+                "ALL",
+                "WAITING",
+                "APPROVED",
+                "REJECTED",
+            ],
+            key="access_request_status_filter",
+        )
+
+        try:
+
+            if request_filter == "ALL":
+
+                requests = list_access_requests()
+
+            else:
+
+                requests = list_access_requests(
+                    status=request_filter.lower()
+                )
+
+            if not requests:
+
+                if request_filter == "WAITING":
+
+                    st.success(
+                        "✓ No waiting access requests."
+                    )
+
+                else:
+
+                    st.info(
+                        "No access requests found."
+                    )
+
+            else:
+
+                request_rows = []
+
+                for request in requests:
+
+                    request_rows.append(
+                        {
+                            "ID": str(
+                                request.get(
+                                    "id",
+                                    "",
+                                )
+                            ),
+
+                            "WhatsApp Number": request.get(
+                                "whatsapp_number",
+                                "",
+                            ),
+
+                            "Status": str(
+                                request.get(
+                                    "status",
+                                    "waiting",
+                                )
+                            ).upper(),
+
+                            "Created At": request.get(
+                                "created_at",
+                                "",
+                            ),
+
+                            "Reviewed At": request.get(
+                                "reviewed_at",
+                                "",
+                            ),
+
+                            "Reviewed By": request.get(
+                                "reviewed_by",
+                                "",
+                            ),
+                        }
+                    )
+
+                requests_df = pd.DataFrame(
+                    request_rows
+                )
+
+                st.dataframe(
+                    requests_df,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                st.markdown(
+                    "---"
+                )
+
+                st.markdown(
+                    "#### 🔧 Review Request"
+                )
+
+                request_options = [
+                    r
+                    for r in requests
+                ]
+
+                request_labels = []
+
+                for request in request_options:
+
+                    request_id = str(
+                        request.get(
+                            "id",
+                            "",
+                        )
+                    )
+
+                    whatsapp = str(
+                        request.get(
+                            "whatsapp_number",
+                            "",
+                        )
+                    )
+
+                    status = str(
+                        request.get(
+                            "status",
+                            "waiting",
+                        )
+                    ).upper()
+
+                    request_labels.append(
+                        f"{whatsapp} • {status} • {request_id[:8]}"
+                    )
+
+                selected_label = st.selectbox(
+                    "Select request",
+                    request_labels,
+                    key="selected_access_request",
+                )
+
+                selected_index = (
+                    request_labels.index(
+                        selected_label
+                    )
+                )
+
+                selected_request = (
+                    request_options[
+                        selected_index
+                    ]
+                )
+
+                selected_id = str(
+                    selected_request.get(
+                        "id",
+                        "",
+                    )
+                )
+
+                selected_whatsapp = str(
+                    selected_request.get(
+                        "whatsapp_number",
+                        "",
+                    )
+                )
+
+                selected_status = str(
+                    selected_request.get(
+                        "status",
+                        "waiting",
+                    )
+                ).lower()
+
+                st.info(
+                    f"📱 WhatsApp: **{selected_whatsapp}**"
+                )
+
+                st.caption(
+                    f"Current status: "
+                    f"{selected_status.upper()}"
+                )
+
+                review_col1, review_col2 = (
+                    st.columns(2)
+                )
+
+                with review_col1:
+
+                    if st.button(
+                        "✅ Approve Request",
+                        type="primary",
+                        use_container_width=True,
+                        key="approve_access_request",
+                        disabled=(
+                            selected_status
+                            == "approved"
+                        ),
+                    ):
+
+                        try:
+
+                            update_access_request_status(
+                                selected_id,
+                                "approved",
+                                st.session_state.username,
+                            )
+
+                            log_action(
+                                "ACCESS_REQUEST_APPROVED",
+                                details=(
+                                    f"Approved access request "
+                                    f"for {selected_whatsapp}"
+                                ),
+                            )
+
+                            st.success(
+                                "✓ Access request approved."
+                            )
+
+                            st.info(
+                                "You can now create the user's "
+                                "username/password from the "
+                                "Users tab and send the credentials "
+                                "to the applicant on WhatsApp."
+                            )
+
+                            st.rerun()
+
+                        except Exception as exc:
+
+                            st.error(
+                                f"Unable to approve request: {exc}"
+                            )
+
+                with review_col2:
+
+                    if st.button(
+                        "❌ Reject Request",
+                        use_container_width=True,
+                        key="reject_access_request",
+                        disabled=(
+                            selected_status
+                            == "rejected"
+                        ),
+                    ):
+
+                        try:
+
+                            update_access_request_status(
+                                selected_id,
+                                "rejected",
+                                st.session_state.username,
+                            )
+
+                            log_action(
+                                "ACCESS_REQUEST_REJECTED",
+                                details=(
+                                    f"Rejected access request "
+                                    f"for {selected_whatsapp}"
+                                ),
+                            )
+
+                            st.success(
+                                "✓ Access request rejected."
+                            )
+
+                            st.rerun()
+
+                        except Exception as exc:
+
+                            st.error(
+                                f"Unable to reject request: {exc}"
+                            )
+
+                if selected_status == "approved":
+
+                    st.success(
+                        "✓ This request is approved."
+                    )
+
+                elif selected_status == "rejected":
+
+                    st.error(
+                        "✕ This request is rejected."
+                    )
+
+                else:
+
+                    st.warning(
+                        "⏳ This request is waiting for review."
+                    )
+
+        except Exception as exc:
+
+            st.error(
+                f"Unable to load access requests: {exc}"
+            )
+
+            st.caption(
+                "Make sure src/database.py contains "
+                "list_access_requests() and "
+                "update_access_request_status()."
+            )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+
     # =====================================================
     # SECURITY
     # =====================================================
@@ -1232,6 +1694,7 @@ if (
             "</div>",
             unsafe_allow_html=True,
         )
+
 
     # =====================================================
     # AUDIT
@@ -1396,13 +1859,17 @@ elif st.session_state.start_mc:
         st.session_state.start_mc
     )
 
-    display_hint = "Ready to search"
+    display_hint = (
+        "Ready to search"
+    )
 
 else:
 
     display_mc = "—"
 
-    display_hint = "Enter a starting MC"
+    display_hint = (
+        "Enter a starting MC"
+    )
 
 
 # =========================================================
@@ -1471,6 +1938,7 @@ with col3:
         use_container_width=True,
     )
 
+
 st.markdown(
     "</div>",
     unsafe_allow_html=True,
@@ -1484,10 +1952,15 @@ st.markdown(
 if clear_button:
 
     st.session_state.running = False
+
     st.session_state.start_mc = ""
+
     st.session_state.current_mc = None
+
     st.session_state.last_searched_mc = None
+
     st.session_state.results = []
+
     st.session_state.searched_count = 0
 
     log_action(
@@ -1512,11 +1985,11 @@ if stop_button:
         st.session_state.last_searched_mc = (
             int(
                 st.session_state.current_mc
-            )
-            - 1
+            ) - 1
         )
 
     st.session_state.running = False
+
     st.session_state.current_mc = None
 
     log_action(
@@ -1565,7 +2038,10 @@ if start_button:
         start_number
     )
 
-    st.session_state.last_searched_mc = None
+    st.session_state.last_searched_mc = (
+        None
+    )
+
     st.session_state.running = True
 
     log_action(
@@ -1573,7 +2049,9 @@ if start_button:
         mc_number=str(
             start_number
         ),
-        details="Sequential MC search started",
+        details=(
+            "Sequential MC search started"
+        ),
     )
 
     st.rerun()
@@ -1678,9 +2156,12 @@ if st.session_state.results:
     )
 
     rows = []
+
     errors = []
 
-    for result in st.session_state.results:
+    for result in (
+        st.session_state.results
+    ):
 
         rows.append(
             {
@@ -1727,6 +2208,7 @@ if st.session_state.results:
         )
 
         if result.get("_error"):
+
             errors.append(
                 result["_error"]
             )
