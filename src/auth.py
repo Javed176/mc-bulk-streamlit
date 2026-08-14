@@ -9,7 +9,6 @@ import streamlit as st
 
 from src.database import (
     clear_user_session,
-    create_access_request,
     create_user_session,
     get_user,
     validate_user_session,
@@ -49,10 +48,12 @@ def init_auth_state():
 # PASSWORD
 # =========================================================
 
-def hash_password(password: str) -> str:
+def hash_password(
+    password: str,
+) -> str:
 
     return hashlib.sha256(
-        password.encode("utf-8")
+        str(password).encode("utf-8")
     ).hexdigest()
 
 
@@ -121,7 +122,7 @@ def check_admin_credentials(
         return False
 
     if not hmac.compare_digest(
-        username.strip(),
+        str(username).strip(),
         configured_username,
     ):
         return False
@@ -149,7 +150,7 @@ def check_admin_credentials(
     if stored_password:
 
         if hmac.compare_digest(
-            password,
+            str(password),
             stored_password,
         ):
             return True
@@ -163,10 +164,13 @@ def check_admin_credentials(
 
 def is_locked() -> bool:
 
-    return time.time() < float(
-        st.session_state.get(
-            "login_locked_until",
-            0.0,
+    return (
+        time.time()
+        < float(
+            st.session_state.get(
+                "login_locked_until",
+                0.0,
+            )
         )
     )
 
@@ -189,12 +193,15 @@ def seconds_remaining() -> int:
 
 def failed_login():
 
-    attempts = int(
-        st.session_state.get(
-            "login_attempts",
-            0,
+    attempts = (
+        int(
+            st.session_state.get(
+                "login_attempts",
+                0,
+            )
         )
-    ) + 1
+        + 1
+    )
 
     if attempts >= MAX_LOGIN_ATTEMPTS:
 
@@ -207,7 +214,9 @@ def failed_login():
 
     else:
 
-        st.session_state.login_attempts = attempts
+        st.session_state.login_attempts = (
+            attempts
+        )
 
 
 # =========================================================
@@ -230,7 +239,6 @@ def _check_database_user(
         return None, "database_error"
 
     if not record:
-
         return None, "invalid"
 
     if not bool(
@@ -250,7 +258,6 @@ def _check_database_user(
     ).strip()
 
     if not stored_hash:
-
         return None, "invalid"
 
     supplied_hash = hash_password(
@@ -285,6 +292,10 @@ def login_user(
         username
     ).strip()
 
+    password = str(
+        password
+    )
+
     if not username or not password:
 
         failed_login()
@@ -303,6 +314,8 @@ def login_user(
             32
         )
 
+        # If an admin also exists in the users table,
+        # maintain the same single-session protection.
         try:
 
             admin_record = get_user(
@@ -318,6 +331,9 @@ def login_user(
 
         except Exception:
 
+            # Admin authentication is based on Streamlit
+            # Secrets. Database session storage is optional
+            # for that special admin account.
             pass
 
         st.session_state.authenticated = True
@@ -373,10 +389,16 @@ def login_user(
 
     try:
 
-        create_user_session(
+        session_result = create_user_session(
             username,
             token,
         )
+
+        # An active database user should have been updated.
+        # If Supabase returns no updated record, don't mark
+        # the browser as authenticated.
+        if session_result is None:
+            return False
 
     except Exception:
 
@@ -417,18 +439,38 @@ def validate_current_session():
         "",
     )
 
+    # Admin accounts configured only through Secrets
+    # may not have a users-table session record.
+    #
+    # If an admin exists in the database, normal
+    # session validation is used.
     if not username or not token:
 
         return False, "missing_session"
 
     try:
 
-        return validate_user_session(
+        result = validate_user_session(
             username,
             token,
         )
 
+        return result
+
     except Exception:
+
+        # Secret-only admin sessions can remain authenticated
+        # without a database session record.
+        if (
+            str(
+                st.session_state.get(
+                    "role",
+                    "",
+                )
+            ).lower()
+            == "admin"
+        ):
+            return True, "admin_secret_session"
 
         return False, "database_error"
 
@@ -448,9 +490,7 @@ def is_authenticated() -> bool:
 
         return False
 
-    valid, _ = (
-        validate_current_session()
-    )
+    valid, _ = validate_current_session()
 
     if not valid:
 
@@ -522,245 +562,3 @@ def logout_user(
     st.session_state.session_token = ""
     st.session_state.login_attempts = 0
     st.session_state.login_locked_until = 0.0
-
-
-# =========================================================
-# ACCESS REQUEST
-# =========================================================
-
-def _request_access():
-
-    st.markdown(
-        "### 📱 Request Access"
-    )
-
-    st.caption(
-        "Enter your WhatsApp number. "
-        "An administrator will contact you."
-    )
-
-    with st.form(
-        "request_access_form",
-        clear_on_submit=True,
-    ):
-
-        whatsapp = st.text_input(
-            "WhatsApp Number",
-            placeholder="+1 555 123 4567",
-        )
-
-        submitted = (
-            st.form_submit_button(
-                "📲 Request Access",
-                type="primary",
-                use_container_width=True,
-            )
-        )
-
-    if submitted:
-
-        clean_number = (
-            str(whatsapp)
-            .strip()
-        )
-
-        if not clean_number:
-
-            st.error(
-                "Please enter your WhatsApp number."
-            )
-
-            return
-
-        # Basic validation:
-        # numbers plus common phone separators only.
-        allowed = set(
-            "0123456789+()- ."
-        )
-
-        if any(
-            char not in allowed
-            for char in clean_number
-        ):
-
-            st.error(
-                "Please enter a valid WhatsApp number."
-            )
-
-            return
-
-        digits = "".join(
-            char
-            for char in clean_number
-            if char.isdigit()
-        )
-
-        if len(digits) < 7:
-
-            st.error(
-                "Please enter a valid WhatsApp number."
-            )
-
-            return
-
-        try:
-
-            create_access_request(
-                clean_number
-            )
-
-            st.success(
-                "✓ Request sent. "
-                "An administrator will contact you on WhatsApp."
-            )
-
-        except Exception as exc:
-
-            st.error(
-                f"Unable to send request: {exc}"
-            )
-
-
-# =========================================================
-# LOGIN SCREEN
-# =========================================================
-
-def require_login() -> bool:
-
-    init_auth_state()
-
-    if is_authenticated():
-        return True
-
-    st.markdown(
-        """
-        <style>
-
-        .login-title {
-            text-align:center;
-            font-size:2.6rem;
-            font-weight:800;
-            margin-top:8vh;
-            color:white;
-        }
-
-        .login-subtitle {
-            text-align:center;
-            color:#9da6c0;
-            margin-bottom:25px;
-        }
-
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    left, center, right = st.columns(
-        [1, 2, 1]
-    )
-
-    with center:
-
-        st.markdown(
-            '<div class="login-title">✦ MC Search</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            '<div class="login-subtitle">'
-            'Secure administrator / user access'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
-        if is_locked():
-
-            st.error(
-                "🔒 Too many failed login attempts."
-            )
-
-            st.warning(
-                f"Try again in "
-                f"{seconds_remaining()} seconds."
-            )
-
-            st.stop()
-
-        # -------------------------------------------------
-        # LOGIN
-        # -------------------------------------------------
-
-        with st.form(
-            "mc_login_form",
-            clear_on_submit=False,
-        ):
-
-            username = st.text_input(
-                "Username",
-                placeholder="Enter username",
-            )
-
-            password = st.text_input(
-                "Password",
-                type="password",
-                placeholder="Enter password",
-            )
-
-            submitted = (
-                st.form_submit_button(
-                    "🔐 Sign In",
-                    type="primary",
-                    use_container_width=True,
-                )
-            )
-
-        if submitted:
-
-            if login_user(
-                username,
-                password,
-            ):
-
-                st.rerun()
-
-            else:
-
-                if is_locked():
-
-                    st.error(
-                        "🔒 Too many failed attempts. "
-                        "Login temporarily locked."
-                    )
-
-                else:
-
-                    remaining = (
-                        MAX_LOGIN_ATTEMPTS
-                        - int(
-                            st.session_state.get(
-                                "login_attempts",
-                                0,
-                            )
-                        )
-                    )
-
-                    st.error(
-                        "Invalid username or password."
-                    )
-
-                    if remaining > 0:
-
-                        st.caption(
-                            f"{remaining} "
-                            f"attempt(s) remaining."
-                        )
-
-        # -------------------------------------------------
-        # REQUEST ACCESS
-        # -------------------------------------------------
-
-        st.divider()
-
-        _request_access()
-
-    st.stop()
