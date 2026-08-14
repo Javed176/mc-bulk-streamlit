@@ -8,6 +8,14 @@ from supabase import Client, create_client
 
 
 # =========================================================
+# DEFAULTS
+# =========================================================
+
+DEFAULT_SEARCH_DELAY_SECONDS = 0.5
+DEFAULT_SESSION_TIMEOUT_MINUTES = 60
+
+
+# =========================================================
 # SUPABASE CONNECTION
 # =========================================================
 
@@ -32,7 +40,6 @@ def get_supabase() -> Client:
     ).strip()
 
     if not url or not key:
-
         raise RuntimeError(
             "Supabase configuration is missing. "
             "Add SUPABASE_URL and "
@@ -40,10 +47,7 @@ def get_supabase() -> Client:
             "to Streamlit Secrets."
         )
 
-    return create_client(
-        url,
-        key,
-    )
+    return create_client(url, key)
 
 
 # =========================================================
@@ -57,16 +61,12 @@ def get_user(username: str):
     response = (
         client.table("users")
         .select("*")
-        .eq(
-            "username",
-            str(username).strip(),
-        )
+        .eq("username", str(username).strip())
         .limit(1)
         .execute()
     )
 
     if not response.data:
-
         return None
 
     return response.data[0]
@@ -84,12 +84,19 @@ def create_user_record(
         client.table("users")
         .insert(
             {
-                "username": str(username).strip(),
+                "username": username,
                 "password_hash": password_hash,
                 "role": role,
                 "active": True,
-                "search_delay_seconds": 1,
-                "session_timeout_minutes": 60,
+
+                # IMPORTANT:
+                # Default search delay is 0.5 seconds.
+                "search_delay_seconds":
+                    DEFAULT_SEARCH_DELAY_SECONDS,
+
+                "session_timeout_minutes":
+                    DEFAULT_SESSION_TIMEOUT_MINUTES,
+
                 "session_token": None,
                 "session_started_at": None,
             }
@@ -97,7 +104,7 @@ def create_user_record(
         .execute()
     )
 
-    return response.data or []
+    return response.data
 
 
 def update_user(
@@ -110,10 +117,7 @@ def update_user(
     return (
         client.table("users")
         .update(values)
-        .eq(
-            "username",
-            str(username).strip(),
-        )
+        .eq("username", username)
         .execute()
     )
 
@@ -128,7 +132,6 @@ def list_users():
             """
             id,
             username,
-            password_hash,
             role,
             active,
             created_at,
@@ -155,10 +158,7 @@ def delete_user(username: str):
     return (
         client.table("users")
         .delete()
-        .eq(
-            "username",
-            str(username).strip(),
-        )
+        .eq("username", username)
         .execute()
     )
 
@@ -177,13 +177,16 @@ def set_user_active(
     }
 
     if not active:
-
         values["session_token"] = None
         values["session_started_at"] = None
 
-    return update_user(
-        username,
-        values,
+    client = get_supabase()
+
+    return (
+        client.table("users")
+        .update(values)
+        .eq("username", username)
+        .execute()
     )
 
 
@@ -193,7 +196,7 @@ def set_user_active(
 
 def update_user_settings(
     username: str,
-    search_delay_seconds: int | None = None,
+    search_delay_seconds: float | None = None,
     session_timeout_minutes: int | None = None,
 ):
 
@@ -202,8 +205,8 @@ def update_user_settings(
     if search_delay_seconds is not None:
 
         values["search_delay_seconds"] = max(
-            0,
-            int(search_delay_seconds),
+            0.0,
+            float(search_delay_seconds),
         )
 
     if session_timeout_minutes is not None:
@@ -214,12 +217,15 @@ def update_user_settings(
         )
 
     if not values:
-
         return None
 
-    return update_user(
-        username,
-        values,
+    client = get_supabase()
+
+    return (
+        client.table("users")
+        .update(values)
+        .eq("username", username)
+        .execute()
     )
 
 
@@ -231,6 +237,17 @@ def create_user_session(
     username: str,
     session_token: str,
 ):
+
+    """
+    Create/replace the user's active session.
+
+    IMPORTANT:
+    We intentionally DO NOT reject an existing session.
+
+    If the user logs in from another tab/browser, this
+    replaces the old token. The old session will therefore
+    fail validation on its next rerun.
+    """
 
     client = get_supabase()
 
@@ -248,7 +265,7 @@ def create_user_session(
         )
         .eq(
             "username",
-            str(username).strip(),
+            username,
         )
         .eq(
             "active",
@@ -257,12 +274,10 @@ def create_user_session(
         .execute()
     )
 
-    return response.data or []
+    return response.data
 
 
-def get_user_session(
-    username: str,
-):
+def get_user_session(username: str):
 
     client = get_supabase()
 
@@ -280,17 +295,32 @@ def get_user_session(
         )
         .eq(
             "username",
-            str(username).strip(),
+            username,
         )
         .limit(1)
         .execute()
     )
 
     if not response.data:
-
         return None
 
-    return response.data[0]
+    record = response.data[0]
+
+    # -----------------------------------------------------
+    # Safe defaults for older users
+    # -----------------------------------------------------
+
+    if record.get("search_delay_seconds") is None:
+        record["search_delay_seconds"] = (
+            DEFAULT_SEARCH_DELAY_SECONDS
+        )
+
+    if record.get("session_timeout_minutes") is None:
+        record["session_timeout_minutes"] = (
+            DEFAULT_SESSION_TIMEOUT_MINUTES
+        )
+
+    return record
 
 
 def validate_user_session(
@@ -298,12 +328,9 @@ def validate_user_session(
     session_token: str,
 ):
 
-    record = get_user_session(
-        username
-    )
+    record = get_user_session(username)
 
     if not record:
-
         return False, "missing"
 
     if not bool(
@@ -312,7 +339,6 @@ def validate_user_session(
             True,
         )
     ):
-
         return False, "inactive"
 
     database_token = str(
@@ -324,14 +350,19 @@ def validate_user_session(
     )
 
     if not database_token:
-
         return False, "no_session"
+
+    # -----------------------------------------------------
+    # This is the important single-session check.
+    #
+    # When another login occurs, the database token changes.
+    # The old tab will fail here.
+    # -----------------------------------------------------
 
     if not hmac_compare(
         database_token,
         str(session_token),
     ):
-
         return False, "session_replaced"
 
     started_at = record.get(
@@ -339,7 +370,6 @@ def validate_user_session(
     )
 
     if not started_at:
-
         return False, "no_start_time"
 
     try:
@@ -352,7 +382,6 @@ def validate_user_session(
         )
 
         if started.tzinfo is None:
-
             started = started.replace(
                 tzinfo=timezone.utc
             )
@@ -362,7 +391,7 @@ def validate_user_session(
             int(
                 record.get(
                     "session_timeout_minutes",
-                    60,
+                    DEFAULT_SESSION_TIMEOUT_MINUTES,
                 )
             ),
         )
@@ -374,10 +403,9 @@ def validate_user_session(
             )
         )
 
-        if (
-            datetime.now(timezone.utc)
-            >= expires_at
-        ):
+        if datetime.now(
+            timezone.utc
+        ) >= expires_at:
 
             clear_user_session(
                 username,
@@ -394,15 +422,15 @@ def validate_user_session(
 
 
 def hmac_compare(
-    a: str,
-    b: str,
+    value_a: str,
+    value_b: str,
 ) -> bool:
 
     import hmac
 
     return hmac.compare_digest(
-        str(a),
-        str(b),
+        str(value_a),
+        str(value_b),
     )
 
 
@@ -423,10 +451,12 @@ def clear_user_session(
         )
         .eq(
             "username",
-            str(username).strip(),
+            username,
         )
     )
 
+    # Only clear the session if this token is still
+    # the current token.
     if session_token:
 
         query = query.eq(
@@ -521,7 +551,7 @@ def get_audit_logs(
 
 
 # =========================================================
-# 90-DAY RETENTION
+# 90 DAY RETENTION
 # =========================================================
 
 def delete_old_audit_logs():
