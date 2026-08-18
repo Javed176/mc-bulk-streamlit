@@ -593,7 +593,7 @@ with header_col1:
 
     st.markdown(
         '<div class="hero-subtitle">'
-        'Let us know if any error happens'
+        'Let us know if any error happens.....'
         '</div>',
         unsafe_allow_html=True,
     )
