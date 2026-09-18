@@ -709,112 +709,432 @@ def extract_location(soup) -> str:
     return "Not available"
 def extract_owner(soup) -> str:
 
-    # -----------------------------------------------------
-    # PRIMARY METHOD
-    #
-    # Find the actual Company Officers section.
-    # Then find Officer 1.
-    # Then take the next person/name.
-    # -----------------------------------------------------
+    """
+    Extract the first company officer / owner shown by
+    DotSearch.
+
+    DotSearch has used more than one heading for this section,
+    including:
+
+        Company Officers
+        Officers & Contacts
+
+    It also may render "Officer 1" and the person's name either
+    on separate lines or on the same line. This extractor handles
+    all of those layouts before falling back to nearby anchors.
+    """
 
     lines = page_lines(soup)
 
-    company_officer_index = None
+    stop_labels = {
+        "contact information",
+        "operation information",
+        "address",
+        "physical address",
+        "mailing address",
+        "company history",
+        "related companies",
+        "service map",
+        "current insurance policies",
+        "equipment summary",
+        "driver summary",
+        "search another company",
+    }
 
-    for index, line in enumerate(lines):
+    def looks_like_person_name(value: str) -> bool:
 
-        if line.lower() == "company officers":
+        value = clean_text(value)
 
-            company_officer_index = index
-            break
+        if not value:
+            return False
 
-    if company_officer_index is not None:
+        lower = value.lower()
+
+        if lower in stop_labels:
+            return False
+
+        if lower in {
+            "back",
+            "dot search",
+            "company officers",
+            "officers & contacts",
+            "officers and contacts",
+            "contact information",
+            "phone",
+            "email",
+            "website",
+            "fax",
+            "mobile",
+        }:
+            return False
+
+        if "@" in value:
+            return False
+
+        if re.search(
+            r"\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4}",
+            value,
+        ):
+            return False
+
+        if re.search(
+            r"\b(?:DOT|MC|FF)\s*#?\s*\d+\b",
+            value,
+            flags=re.I,
+        ):
+            return False
+
+        if re.search(
+            r"\b\d{5}(?:-\d{4})?\b",
+            value,
+        ):
+            return False
+
+        # Don't accidentally return obvious labels.
+        if re.match(
+            r"^(Officer|Phone|Email|Website|Fax|Mobile)\b",
+            value,
+            flags=re.I,
+        ):
+            return False
+
+        # Person names normally contain at least two words.
+        parts = value.split()
+
+        if len(parts) < 2:
+            return False
+
+        # Avoid absurdly long page-text fragments.
+        if len(value) > 120:
+            return False
+
+        # Require at least one alphabetic character.
+        if not re.search(
+            r"[A-Za-z]",
+            value,
+        ):
+            return False
+
+        return True
+
+    # =====================================================
+    # PRIMARY METHOD
+    #
+    # Locate either of the current DotSearch officer-section
+    # headings and inspect the nearby "Officer 1" entry.
+    # =====================================================
+
+    officer_heading_pattern = re.compile(
+        r"^(?:Company Officers|Officers\s*&\s*Contacts|"
+        r"Officers\s+and\s+Contacts)$",
+        flags=re.I,
+    )
+
+    officer_one_pattern = re.compile(
+        r"^Officer\s*1\b",
+        flags=re.I,
+    )
+
+    for heading_index, line in enumerate(lines):
+
+        if not officer_heading_pattern.fullmatch(
+            clean_text(line)
+        ):
+            continue
+
+        search_end = min(
+            heading_index + 30,
+            len(lines),
+        )
 
         officer_index = None
 
         for index in range(
-            company_officer_index + 1,
-            min(
-                company_officer_index + 10,
-                len(lines),
-            ),
+            heading_index + 1,
+            search_end,
         ):
 
-            if re.fullmatch(
-                r"Officer\s+1",
-                lines[index],
-                flags=re.I,
+            candidate = clean_text(
+                lines[index]
+            )
+
+            if not candidate:
+                continue
+
+            # Stop if we've clearly reached the next section.
+            if (
+                candidate.lower() in stop_labels
+                and candidate.lower()
+                != "address"
+            ):
+                break
+
+            if officer_one_pattern.match(
+                candidate
             ):
 
                 officer_index = index
                 break
 
-        if officer_index is not None:
+        if officer_index is None:
+            continue
 
-            # Search next few lines.
-            for candidate in lines[
-                officer_index + 1:
-                officer_index + 6
-            ]:
+        officer_line = clean_text(
+            lines[officer_index]
+        )
 
-                candidate = clean_text(
-                    candidate
-                )
+        # -------------------------------------------------
+        # "Officer 1: JOHN DOE"
+        # "Officer 1 - JOHN DOE"
+        # "Officer 1 JOHN DOE"
+        # -------------------------------------------------
 
-                if not candidate:
-                    continue
+        same_line = re.match(
+            r"^Officer\s*1\s*(?::|-|–|—)?\s*(.+)$",
+            officer_line,
+            flags=re.I,
+        )
 
-                if re.match(
-                    r"Officer\s+\d+",
-                    candidate,
-                    flags=re.I,
-                ):
-                    continue
+        if same_line:
 
-                if candidate.lower() in (
-                    "contact information",
-                    "operation information",
-                    "address",
-                ):
-                    break
+            possible_name = clean_text(
+                same_line.group(1)
+            )
 
-                # Avoid obvious non-name values.
-                if "@" in candidate:
-                    continue
+            if looks_like_person_name(
+                possible_name
+            ):
 
-                if re.search(
-                    r"\d{3}.*\d{4}",
-                    candidate,
-                ):
-                    continue
+                return possible_name
 
-                # A person name.
-                if len(candidate.split()) >= 2:
+        # -------------------------------------------------
+        # Normal layout:
+        #
+        # Officer 1
+        # JOHN DOE
+        # -------------------------------------------------
 
-                    return candidate
+        for candidate in lines[
+            officer_index + 1:
+            officer_index + 8
+        ]:
 
-    # -----------------------------------------------------
+            candidate = clean_text(
+                candidate
+            )
+
+            if not candidate:
+                continue
+
+            if officer_one_pattern.match(
+                candidate
+            ):
+                continue
+
+            if re.match(
+                r"^Officer\s+\d+\b",
+                candidate,
+                flags=re.I,
+            ):
+
+                # Another officer was reached before a name.
+                continue
+
+            if candidate.lower() in stop_labels:
+                break
+
+            if looks_like_person_name(
+                candidate
+            ):
+
+                return candidate
+
+    # =====================================================
     # SECONDARY METHOD
     #
-    # Search actual links in Company Officers section.
-    # This is especially useful because DotSearch makes
-    # ZAHID ABBAS KHAN a clickable link.
-    # -----------------------------------------------------
+    # Find "Officer 1" anywhere near the top of the document.
+    # This handles cases where the heading itself changed or
+    # was omitted from the parsed text.
+    # =====================================================
 
-    for heading in soup.find_all(
+    for index, line in enumerate(lines):
+
+        candidate_line = clean_text(line)
+
+        if not officer_one_pattern.match(
+            candidate_line
+        ):
+            continue
+
+        # Prefer a same-line name first.
+        same_line = re.match(
+            r"^Officer\s*1\s*(?::|-|–|—)?\s*(.+)$",
+            candidate_line,
+            flags=re.I,
+        )
+
+        if same_line:
+
+            possible_name = clean_text(
+                same_line.group(1)
+            )
+
+            if looks_like_person_name(
+                possible_name
+            ):
+
+                return possible_name
+
+        # Otherwise inspect the following lines.
+        for candidate in lines[
+            index + 1:
+            index + 8
+        ]:
+
+            candidate = clean_text(
+                candidate
+            )
+
+            if not candidate:
+                continue
+
+            if re.match(
+                r"^Officer\s+\d+\b",
+                candidate,
+                flags=re.I,
+            ):
+                continue
+
+            if candidate.lower() in stop_labels:
+                break
+
+            if looks_like_person_name(
+                candidate
+            ):
+
+                return candidate
+
+        # Don't keep searching deep footer content after the
+        # first officer block.
+        if index > 160:
+            break
+
+    # =====================================================
+    # THIRD METHOD
+    #
+    # Search the DOM around officer headings and officer links.
+    # DotSearch may make the officer name a clickable link.
+    # =====================================================
+
+    heading_nodes = soup.find_all(
         string=re.compile(
-            r"Company Officers",
+            r"^(?:Company Officers|Officers\s*&\s*Contacts|"
+            r"Officers\s+and\s+Contacts)$",
             re.I,
         )
-    ):
+    )
+
+    for heading in heading_nodes:
 
         parent = heading.parent
 
-        # Search nearby links.
+        # Search a reasonably small area after the heading.
+        for element in parent.find_all_next(
+            limit=40
+        ):
+
+            text = clean_text(
+                element.get_text(
+                    " ",
+                    strip=True,
+                )
+            )
+
+            if not text:
+                continue
+
+            officer_match = re.match(
+                r"^Officer\s*1\s*(?::|-|–|—)?\s*(.*)$",
+                text,
+                flags=re.I,
+            )
+
+            if officer_match:
+
+                inline_name = clean_text(
+                    officer_match.group(1)
+                )
+
+                if looks_like_person_name(
+                    inline_name
+                ):
+
+                    return inline_name
+
+            # A single element containing only the officer label
+            # means the next anchor/text element is the name.
+            if re.fullmatch(
+                r"Officer\s*1",
+                text,
+                flags=re.I,
+            ):
+
+                next_link = element.find_next(
+                    "a"
+                )
+
+                if next_link:
+
+                    link_name = clean_text(
+                        next_link.get_text(
+                            " ",
+                            strip=True,
+                        )
+                    )
+
+                    if looks_like_person_name(
+                        link_name
+                    ):
+
+                        return link_name
+
+                # Also inspect following text nodes/elements.
+                for sibling in element.find_all_next(
+                    limit=8
+                ):
+
+                    sibling_text = clean_text(
+                        sibling.get_text(
+                            " ",
+                            strip=True,
+                        )
+                    )
+
+                    if (
+                        sibling_text
+                        and sibling_text.lower()
+                        != "officer 1"
+                        and looks_like_person_name(
+                            sibling_text
+                        )
+                    ):
+
+                        return sibling_text
+
+    # =====================================================
+    # FINAL FALLBACK
+    #
+    # Look for anchors whose text resembles a person name,
+    # but only around the officer section.
+    # =====================================================
+
+    for heading in heading_nodes:
+
+        parent = heading.parent
 
         for link in parent.find_all_next(
             "a",
-            limit=5,
+            limit=15,
         ):
 
             name = clean_text(
@@ -824,33 +1144,23 @@ def extract_owner(soup) -> str:
                 )
             )
 
-            if not name:
-                continue
-
-            if name.lower() in (
-                "back",
-                "search another company",
+            if not looks_like_person_name(
+                name
             ):
                 continue
 
-            if re.match(
-                r"Officer\s+\d+",
-                name,
-                flags=re.I,
-            ):
-                continue
-
-            if "google" in (
+            href = str(
                 link.get(
                     "href",
-                    ""
-                ).lower()
-            ):
+                    "",
+                )
+                or ""
+            ).lower()
+
+            if "google" in href:
                 continue
 
-            if len(name.split()) >= 2:
-
-                return name
+            return name
 
     return "Not available"
 
